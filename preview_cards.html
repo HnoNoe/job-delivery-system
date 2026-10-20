@@ -1,0 +1,164 @@
+<meta charset="utf-8">
+<style>
+/* ===== 基础版面 ===== */
+.stApp { background: #F7F8FC; }
+.block-container { padding-top: 1.2rem; padding-bottom: 3rem; max-width: 1160px; }
+html, body, [class*="css"] { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", system-ui, sans-serif; }
+h1, h2, h3, h4 { color: #0F172A; letter-spacing: .01em; }
+p, li, .stMarkdown { color: #475569; }
+.stCaption, [data-testid="stCaptionContainer"] { color: #94A3B8 !important; }
+hr { border: none; border-top: 1px solid #E2E8F0; margin: 1.6rem 0 .6rem; }
+
+/* ===== 顶部品牌横幅 ===== */
+.hero {
+  position: relative; overflow: hidden;
+  background: linear-gradient(120deg, #4F46E5 0%, #7C3AED 55%, #A855F7 100%);
+  border-radius: 18px; padding: 1.9rem 2.2rem 1.6rem; margin-bottom: 1.2rem;
+  box-shadow: 0 12px 32px -12px rgba(79, 70, 229, .45);
+}
+.hero::before {
+  content: ""; position: absolute; inset: 0;
+  background:
+    radial-gradient(420px 200px at 88% -30%, rgba(255,255,255,.28), transparent 60%),
+    radial-gradient(300px 160px at 6% 120%, rgba(255,255,255,.14), transparent 60%);
+}
+.hero-inner { position: relative; }
+.hero-title { color: #fff; font-size: 1.75rem; font-weight: 800; letter-spacing: .02em; }
+.hero-sub { color: rgba(255,255,255,.88); margin-top: .45rem; font-size: .95rem; }
+.hero-tags { margin-top: .9rem; display: flex; gap: .5rem; flex-wrap: wrap; }
+.hero-tags span {
+  color: #fff; font-size: .75rem; padding: .18rem .7rem; border-radius: 999px;
+  background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.28);
+  backdrop-filter: blur(4px);
+}
+
+/* ===== 步骤标题 ===== */
+.sec { display: flex; align-items: center; gap: .8rem; margin: .4rem 0 .7rem; }
+.sec-num {
+  width: 2.1rem; height: 2.1rem; border-radius: 50%; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 800; font-size: 1rem;
+  background: linear-gradient(120deg, #4F46E5 0%, #7C3AED 55%, #A855F7 100%);
+  box-shadow: 0 4px 12px -4px rgba(124, 58, 237, .55);
+}
+.sec-title { font-size: 1.18rem; font-weight: 700; color: #0F172A; }
+.sec-cap { font-size: .83rem; color: #94A3B8; margin-top: .1rem; }
+
+/* ===== 状态小圆牌 ===== */
+.pill {
+  display: inline-flex; align-items: center; gap: .3rem;
+  font-size: .78rem; font-weight: 600; padding: .12rem .6rem; border-radius: 999px;
+}
+.pill-ok   { color: #047857; background: #D1FAE5; }
+.pill-off  { color: #475569;  background: #E2E8F0; }
+.pill-warn { color: #B45309; background: #FEF3C7; }
+
+/* ===== 按钮 ===== */
+.stButton > button {
+  border-radius: 10px; font-weight: 600; border: 1px solid #E2E8F0;
+  transition: transform .08s ease, box-shadow .15s ease;
+}
+.stButton > button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px -8px rgba(15, 23, 42, .35);
+}
+.stButton > button[kind="primary"] {
+  background: linear-gradient(120deg, #4F46E5 0%, #7C3AED 55%, #A855F7 100%); border: none;
+  box-shadow: 0 8px 20px -8px rgba(79, 70, 229, .6);
+}
+.stButton > button:disabled { opacity: .45; transform: none; box-shadow: none; }
+
+/* ===== 输入控件 ===== */
+.stTextInput input, .stNumberInput input, .stTextArea textarea {
+  border-radius: 10px; border-color: #E2E8F0;
+}
+.stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus {
+  border-color: #4F46E5; box-shadow: 0 0 0 3px rgba(79, 70, 229, .15);
+}
+
+/* ===== 折叠卡片 ===== */
+[data-testid="stExpander"] {
+  background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .05);
+  overflow: hidden;
+}
+[data-testid="stExpander"] details summary {
+  padding: .7rem 1rem; font-weight: 600; color: #0F172A;
+}
+[data-testid="stExpander"] details summary:hover { color: #4F46E5; }
+
+/* ===== 数据表 / 代码块 ===== */
+[data-testid="stDataFrame"] {
+  background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: .35rem;
+}
+.stCode, [data-testid="stCodeBlock"] { border-radius: 10px; }
+
+/* ===== 指标卡 ===== */
+[data-testid="stMetric"] {
+  background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 14px;
+  padding: .9rem 1.1rem; box-shadow: 0 1px 3px rgba(15, 23, 42, .05);
+}
+[data-testid="stMetricLabel"] { color: #94A3B8; font-weight: 600; }
+[data-testid="stMetricValue"] { color: #0F172A; font-weight: 800; }
+
+/* ===== 提示条圆角统一 ===== */
+[data-testid="stAlert"] { border-radius: 12px; }
+
+/* ===== 侧栏 ===== */
+[data-testid="stSidebar"] {
+  background: #FBFBFE; border-right: 1px solid #E2E8F0;
+}
+[data-testid="stSidebar"] .stCaption { letter-spacing: .02em; }
+
+/* ===== Plotly 图表容器留呼吸感 ===== */
+[data-testid="stPlotlyChart"] { margin-bottom: .4rem; }
+
+/* ===== 步骤标题状态 ===== */
+.sec-head { flex: 1; }
+.sec-status { margin-left: auto; flex: none; }
+
+/* ===== 侧栏六步进度条 ===== */
+.stepper { margin: .3rem 0 .4rem; }
+.stepper-bar {
+  height: 6px; border-radius: 999px; background: #E2E8F0; overflow: hidden;
+}
+.stepper-fill {
+  height: 100%; border-radius: 999px; background: linear-gradient(120deg, #4F46E5 0%, #7C3AED 55%, #A855F7 100%);
+  transition: width .4s ease;
+}
+.stepper-row {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: .3rem; margin-top: .5rem;
+}
+.stp {
+  font-size: .72rem; color: #94A3B8; display: flex; align-items: center; gap: .25rem;
+  white-space: nowrap;
+}
+.stp-ic { font-weight: 700; }
+.stp-done { color: #047857; }
+.stp-active { color: #4F46E5; font-weight: 700; }
+.stepper-pct { font-size: .72rem; color: #94A3B8; margin-top: .35rem; text-align: right; }
+
+/* ===== 空态引导卡片 ===== */
+.empty {
+  background: #FFFFFF; border: 1px dashed #E2E8F0; border-radius: 14px;
+  padding: 1.6rem 1rem; text-align: center; margin: .4rem 0;
+}
+.empty-icon { font-size: 1.6rem; }
+.empty-title { font-weight: 700; color: #475569; margin-top: .3rem; }
+.empty-desc { font-size: .83rem; color: #94A3B8; margin-top: .2rem; }
+
+/* ===== 岗位卡片 ===== */
+.jcard-top { display: flex; align-items: center; gap: .55rem; flex-wrap: wrap; }
+.jgrade {
+  font-size: .72rem; font-weight: 700; padding: .08rem .55rem; border-radius: 999px;
+  flex: none;
+}
+.jtitle { font-size: 1.05rem; font-weight: 700; color: #0F172A; }
+.junit { color: #94A3B8; font-size: .88rem; }
+.jmeta { color: #94A3B8; font-size: .8rem; margin: .3rem 0 .45rem; }
+.jbar {
+  height: 6px; border-radius: 999px; background: #EEF1F7; overflow: hidden; width: 100%;
+}
+.jbar-fill { height: 100%; border-radius: 999px; transition: width .5s ease; }
+</style>
+<body style="background:#F7F8FC;padding:24px"><div style="max-width:760px;margin:auto"><div style="background:#fff;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px;margin-bottom:10px"><div class="jcard"><div class="jcard-top"><span class="jgrade" style="color:#10B981;background:#10B9811A;border:1px solid #10B98155">A 级</span><span class="jtitle">Python后端开发工程师</span><span class="junit">示例科技</span></div><div class="jmeta">💰 17-28K·14薪 · 等级分 86/100 · 匹配分 0.862</div><div class="jbar"><div class="jbar-fill" style="width:86%;background:#10B981"></div></div></div></div><div style="background:#fff;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px;margin-bottom:10px"><div class="jcard"><div class="jcard-top"><span class="jgrade" style="color:#F59E0B;background:#F59E0B1A;border:1px solid #F59E0B55">B 级</span><span class="jtitle">大数据开发工程师</span><span class="junit">极光数据</span></div><div class="jmeta">💰 15-25K · 等级分 64/100 · 匹配分 0.631</div><div class="jbar"><div class="jbar-fill" style="width:63%;background:#F59E0B"></div></div></div></div><div style="background:#fff;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px;margin-bottom:10px"><div class="jcard"><div class="jcard-top"><span class="jgrade" style="color:#EF4444;background:#EF44441A;border:1px solid #EF444455">C 级</span><span class="jtitle">运维开发工程师</span><span class="junit">星辰软件</span></div><div class="jmeta">💰 12-18K · 等级分 41/100 · 匹配分 0.405</div><div class="jbar"><div class="jbar-fill" style="width:40%;background:#EF4444"></div></div></div></div></div></body>

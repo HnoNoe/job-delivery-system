@@ -1,0 +1,11 @@
+# 运行时产物
+__pycache__/
+*.pyc
+data/
+logs/
+outbox/
+# 生成的简历与投递材料包（含个人信息，切勿提交）
+resumes/
+packages/
+# 浏览器持久化登录态（含个人登录信息，切勿提交）
+sessions/

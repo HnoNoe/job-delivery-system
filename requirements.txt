@@ -1,0 +1,15 @@
+streamlit>=1.32
+numpy>=1.24
+pandas>=2.0
+matplotlib>=3.7
+DrissionPage>=4.0
+reportlab>=4.0
+beautifulsoup4>=4.12
+pdfplumber>=0.10
+# Web 表单投递 / JS 渲染采集用（可选，非核心路径）
+selenium>=4.15
+# 可选：真实语义嵌入（未安装时自动回退到离线哈希嵌入）
+# sentence-transformers>=2.2
+# 可选：真实生成式AI（未安装时使用字段约束桩）
+# openai>=1.0
+
