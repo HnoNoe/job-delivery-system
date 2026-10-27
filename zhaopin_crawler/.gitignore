@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 运行产物（每次运行会重新生成，不必提交）
+output/
+raw/
+运行日志.log
+browser_data/
+state/
+
+# 系统
+.DS_Store
+Thumbs.db
+desktop.ini
