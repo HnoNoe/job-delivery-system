@@ -21,6 +21,10 @@ import mock_site
 # ---------- 准备：启动 mock 站 + 造登录态 + 清库 ----------
 if mock_site.GREETS_FILE.exists():
     mock_site.GREETS_FILE.unlink()
+# 清库重跑：deliver_batch() 会捞全库未投递任务，残留的旧任务会让本测试误失败
+_db_path = Path(config.DB_PATH)
+if _db_path.exists():
+    _db_path.unlink()
 srv = mock_site.start_in_background()
 time.sleep(0.5)
 session.save_cookies("mock", [{"name": "mock_login", "value": "1"}])
@@ -61,7 +65,7 @@ config.SAFE_MODE = False
 sc = Path(config.BASE_DIR) / "data" / "send_count.txt"
 if sc.exists():
     sc.unlink()
-batch = delivery.deliver_batch()
+batch = delivery.deliver_batch(task_ids=[x["task_id"] for x in r["target_jobs"]])
 print("③ 投递 OK：成功 %d / 失败 %d（%s）" % (
     batch["成功数"], batch["失败数"], batch["停止原因"] or "无停止"))
 assert batch["成功数"] > 0, "投递失败：" + str(batch)
