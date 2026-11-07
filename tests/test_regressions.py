@@ -269,6 +269,21 @@ class RegressionTests(unittest.TestCase):
         with patch("requests.get", return_value=alive):
             self.assertEqual(login_status.check_platform("boss", online=True)["state"], "logged_in")
 
+    def test_missing_drissionpage_gives_friendly_error(self):
+        """CI 只装 requirements.txt（无 DrissionPage）时，登录入口要给安装提示而不是 ImportError。"""
+        import builtins
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "DrissionPage":
+                raise ImportError("blocked for test")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=fake_import):
+            ok, msg = session.dpage_open("boss")
+        self.assertFalse(ok)
+        self.assertIn("浏览器功能依赖缺失", msg)
+
     def test_entry_url_validation(self):
         for bad in ("file:///etc/passwd", "ftp://example.com/x", "http://10.0.0.5/apply",
                     "http://user:pass@example.com/x", "not-a-url"):

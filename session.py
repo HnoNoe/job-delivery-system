@@ -420,7 +420,11 @@ def _attach_existing(platform_key):
     调试端口优先读自己记录的端口文件，其次读 Chrome 在 profile 里写的
     DevToolsActivePort，这样旧版本启动的浏览器也能被接管，登录态不会丢。
     """
-    from DrissionPage import ChromiumPage
+    try:
+        from DrissionPage import ChromiumPage
+    except ImportError:
+        # 未安装浏览器依赖时交给 _launch_dpage 给出可读的安装提示
+        return None
 
     candidates = []
     try:
