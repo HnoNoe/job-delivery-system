@@ -9,7 +9,8 @@ import config
 
 def logistic(x):
     """逻辑斯谛函数 σ(x) = 1/(1+e^{-x})，将实数映射到开区间 (0,1)。"""
-    return 1.0 / (1.0 + np.exp(-np.clip(x, -50, 50)))
+    return np.clip(1.0 / (1.0 + np.exp(-np.clip(x, -50, 50))),
+                   np.nextafter(0.0, 1.0), np.nextafter(1.0, 0.0))
 
 
 def formula_1_user_representation(experience_vectors, weights):
@@ -61,10 +62,18 @@ def formula_4_experience_allocation(weights, sims, tau):
     """
     a = np.asarray(weights, dtype=float)
     b = np.asarray(sims, dtype=float)
+    if a.size == 0:
+        return a.copy()
+    if a.shape != b.shape or not np.isfinite(a).all() or not np.isfinite(b).all() or tau <= 0:
+        raise ValueError("经历权重/相似度须为同形有限向量，tau 须为正")
     a = np.clip(a, 0.0, None)
     if a.sum() <= 0:
         a = np.ones_like(a) / a.shape[0]
-    w = a * np.exp(tau * b)
+    # Log space avoids overflow and preserves zero-weight entries.
+    logits = np.full_like(a, -np.inf)
+    mask = a > 0
+    logits[mask] = np.log(a[mask]) + tau * b[mask]
+    w = np.exp(logits - logits.max())
     return w / w.sum()
 
 
@@ -76,9 +85,14 @@ def formula_5_weight_update(weights, z, indicators, eta):
     """
     a = np.asarray(weights, dtype=float)
     ind = np.asarray(indicators, dtype=float)
+    if z not in (0, 1) or a.shape != ind.shape or not np.isin(ind, (0, 1)).all() or eta <= 0:
+        raise ValueError("反馈须为 0/1，写入指示须与经历权重一一对应，eta 须为正")
+    if a.size == 0:
+        return a.copy()
     a = np.clip(a, 0.0, None)
     # 先乘性更新
-    a = a * np.exp(eta * z * ind)
+    shift = eta * z * ind
+    a = a * np.exp(shift - shift.max())
     s = a.sum()
     if s <= 0:
         return a  # 恒等（未写入任何经历）

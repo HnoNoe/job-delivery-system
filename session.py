@@ -8,21 +8,26 @@
 5. 后续检索复用已保存会话，无需重复登录
 """
 import pickle
+import io
+import json
+import sys
 import time
 from pathlib import Path
 
 import config
 import platforms
 
-SESSION_DIR = Path(config.BASE_DIR) / "sessions"
-SESSION_DIR.mkdir(exist_ok=True)
+SESSION_DIR = Path(config.RUNTIME_DIR) / "sessions"
+SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _new_driver(headless=True, window_size="1280,900", profile_dir=None):
     """创建浏览器驱动（自动识别 Chrome / Edge）。"""
     from selenium import webdriver
+    from browser_runtime import find_browser
+    binary, kind = find_browser()
     profile_dir = str(profile_dir or "")
-    is_edge = "Edge" in profile_dir
+    is_edge = kind == "edge"
     if is_edge:
         from selenium.webdriver.edge.options import Options
         Driver = webdriver.Edge
@@ -30,10 +35,11 @@ def _new_driver(headless=True, window_size="1280,900", profile_dir=None):
         from selenium.webdriver.chrome.options import Options
         Driver = webdriver.Chrome
     opts = Options()
+    opts.binary_location = binary
     if headless:
         opts.add_argument("--headless=new")
         opts.add_argument("--window-size=%s" % window_size)
-    if profile_dir and not headless:
+    if profile_dir:
         # 仅在有头模式使用持久化用户目录（无头 + user-data-dir 会让浏览器崩溃）
         Path(profile_dir).mkdir(parents=True, exist_ok=True)
         opts.add_argument("--user-data-dir=%s" % profile_dir)
@@ -55,6 +61,11 @@ def _new_driver(headless=True, window_size="1280,900", profile_dir=None):
 
 def _profile_dir(platform_key):
     return SESSION_DIR / "profiles" / platform_key
+
+
+def profile_dir(platform_key):
+    """公开访问器：该平台 DrissionPage 的浏览器持久化目录（登录态检测用）。"""
+    return SESSION_DIR / "dprofiles" / platform_key
 
 
 def launch_login(platform_key, headless=None):
@@ -139,21 +150,37 @@ def safe_quit(driver):
 def save_session(platform_key, driver):
     try:
         cookies = driver.get_cookies()
-        (SESSION_DIR / ("%s.pkl" % platform_key)).write_bytes(pickle.dumps(cookies))
-        return len(cookies)
+        return save_cookies(platform_key, cookies)
     except Exception:
         return 0
 
 
 def load_session(platform_key):
-    path = SESSION_DIR / ("%s.pkl" % platform_key)
-    if path.exists():
-        return pickle.loads(path.read_bytes())
+    if not platforms.get(platform_key):
+        return None
+    path = SESSION_DIR / ("%s.json" % platform_key)
+    legacy = SESSION_DIR / ("%s.pkl" % platform_key)
+    try:
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+        elif legacy.exists():
+            class CookieUnpickler(pickle.Unpickler):
+                def find_class(self, module, name):
+                    raise pickle.UnpicklingError("Cookie files may contain only plain data")
+            data = CookieUnpickler(io.BytesIO(legacy.read_bytes())).load()
+        else:
+            return None
+        if not isinstance(data, list) or not all(isinstance(c, dict) and isinstance(c.get("name"), str)
+                                                and isinstance(c.get("value"), str) for c in data):
+            return None
+        return data
+    except (OSError, pickle.UnpicklingError, EOFError, ValueError, TypeError, ImportError, AttributeError):
+        return None
     return None
 
 
 def has_session(platform_key):
-    return (SESSION_DIR / ("%s.pkl" % platform_key)).exists()
+    return bool(load_session(platform_key))
 
 
 def get_logged_in_browser(platform_key, headless=True):
@@ -176,9 +203,10 @@ def get_logged_in_browser(platform_key, headless=True):
 
 
 def clear_session(platform_key):
-    path = SESSION_DIR / ("%s.pkl" % platform_key)
-    if path.exists():
-        path.unlink()
+    if not platforms.get(platform_key):
+        return
+    for suffix in ("json", "pkl"):
+        (SESSION_DIR / ("%s.%s" % (platform_key, suffix))).unlink(missing_ok=True)
 
 
 # ---- 非阻塞登录（用户主导节奏）----
@@ -238,7 +266,10 @@ def manual_login(platform_key):
 
 def read_real_cookies(platform_key):
     """读取用户真实浏览器（Chrome/Edge）中该平台的登录 cookie。"""
-    import browser_cookie3
+    try:
+        import browser_cookie3
+    except ImportError:
+        return []
     domain = platforms.cookie_domain(platform_key)
     if not domain:
         return []
@@ -260,11 +291,17 @@ def read_real_cookies(platform_key):
 def real_chrome_profile():
     """检测用户真实浏览器用户目录（优先 Edge，其次 Chrome）。"""
     import os
-    local = os.environ.get("LOCALAPPDATA", "")
-    for c in (os.path.join(local, "Microsoft", "Edge", "User Data"),
-              os.path.join(local, "Google", "Chrome", "User Data")):
+    import sys
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA", "")
+        candidates = (Path(local) / "Microsoft/Edge/User Data", Path(local) / "Google/Chrome/User Data") if local else ()
+    elif sys.platform == "darwin":
+        candidates = (Path.home() / "Library/Application Support/Microsoft Edge", Path.home() / "Library/Application Support/Google/Chrome")
+    else:
+        candidates = tuple(Path.home() / ".config" / name for name in ("microsoft-edge", "google-chrome", "chromium"))
+    for c in candidates:
         if os.path.isdir(c):
-            return c
+            return str(c)
     return None
 
 
@@ -303,17 +340,19 @@ def read_cookies_via_profile(platform_key):
 
 
 def save_cookies(platform_key, cookies):
-    (SESSION_DIR / ("%s.pkl" % platform_key)).write_bytes(pickle.dumps(cookies))
+    if not platforms.get(platform_key):
+        raise ValueError("未知平台：%s" % platform_key)
+    SESSION_DIR.mkdir(parents=True, exist_ok=True)
+    (SESSION_DIR / ("%s.json" % platform_key)).write_text(json.dumps(cookies, ensure_ascii=False), encoding="utf-8")
     return len(cookies)
 
 
 def close_browser():
-    """关闭 Edge/Chrome（用于释放用户目录，读取登录态）。"""
-    import subprocess
-    for exe in ("msedge.exe", "chrome.exe"):
-        subprocess.run(["taskkill", "/IM", exe, "/F"],
-                       capture_output=True, creationflags=0x08000000)
-    time.sleep(2)
+    """只关闭本应用创建的浏览器，不终止用户其他窗口。"""
+    for platform_key in list(ACTIVE_DRIVERS):
+        close_login(platform_key)
+    for platform_key in list(_DPAGES):
+        dpage_quit(platform_key)
 
 
 def finish_manual_login(platform_key):
@@ -323,9 +362,9 @@ def finish_manual_login(platform_key):
     if cookies:
         n = save_cookies(platform_key, cookies)
         return True, "已读取 %d 个登录 cookie（无需关浏览器）" % n
-    # 浏览器运行中会锁库，自动关闭后读取
+    # Do not terminate the user's unrelated browser windows to unlock a profile.
     if browser_running():
-        close_browser()
+        return False, "浏览器用户目录正在使用，请保存工作并自行关闭 Chrome/Edge 后重试"
     cookies = read_cookies_via_profile(platform_key)
     if cookies:
         n = save_cookies(platform_key, cookies)
@@ -336,98 +375,244 @@ def finish_manual_login(platform_key):
 
 # ---- DrissionPage 抗反爬方案（真实平台）----
 _DPAGES = {}  # platform_key -> ChromiumPage（登录后保持打开，检索复用）
+_LAST_SEARCH_ERROR = {}  # platform_key -> 最近一次检索失败的真实原因（供界面显示）
+_HIDDEN_LAUNCH = set()  # 以“屏幕外窗口”启动的平台（检索静默用）
 
 
 def is_active(platform_key):
-    """平台当前是否可用：已保存登录态，或登录浏览器页面仍开着。
+    """平台当前是否可用：用户已经确认并保存登录态。
 
     公共访问器：外部模块不应直接读私有 `_DPAGES`。
     """
-    return has_session(platform_key) or platform_key in _DPAGES
+    return has_session(platform_key)
 
 
-def _dpage_port(platform_key):
-    """每个平台固定一个调试端口（auto_port + user_data_path 组合有 bug，用固定端口规避）。"""
-    return {"boss": 9333, "zhilian": 9334, "lagou": 9335, "liepin": 9336, "job51": 9337}.get(platform_key, 9400)
+def last_search_error(platform_key):
+    """最近一次检索失败的原因（无失败返回空串）。"""
+    return _LAST_SEARCH_ERROR.get(platform_key, "")
 
 
-def _kill_orphan_browser(port):
-    """按调试端口清理孤儿 Chromium 进程（Streamlit 重启后残留的浏览器）。"""
-    import subprocess
+def _port_file(platform_key):
+    return SESSION_DIR / ("%s.devtools_port" % platform_key)
+
+
+def _port_open(port, timeout=0.3):
+    import socket
+    with socket.socket() as sock:
+        sock.settimeout(timeout)
+        return sock.connect_ex(("127.0.0.1", int(port))) == 0
+
+
+def _page_alive(page):
+    """浏览器对象是否仍然可用（用户关闭窗口 / 进程重启后为 False）。"""
     try:
-        out = subprocess.run(
-            ["wmic", "process", "where",
-             "Name like '%chrome%' or Name like '%msedge%'",
-             "get", "ProcessId,CommandLine", "/format:list"],
-            capture_output=True, text=True, timeout=20).stdout
-        pid = None
-        block, cur = "", None
-        for line in out.splitlines():
-            line = line.strip()
-            if line.startswith("CommandLine="):
-                cur = line[len("CommandLine="):]
-            elif line.startswith("ProcessId="):
-                pid = line[len("ProcessId="):]
-                if cur and ("--remote-debugging-port=%d" % port) in cur:
-                    try:
-                        subprocess.run(["taskkill", "/F", "/PID", pid],
-                                       capture_output=True, timeout=10)
-                    except Exception:
-                        pass
-                cur = None
+        page.url
+        return True
     except Exception:
+        return False
+
+
+def _attach_existing(platform_key):
+    """尝试接管上次启动、且现在仍在运行的浏览器。
+
+    应用重启（改代码、手动重启 Streamlit）后，进程内 `_DPAGES` 会清空，
+    但浏览器进程仍在运行并锁着 profile；此时直接再启动会失败。
+    调试端口优先读自己记录的端口文件，其次读 Chrome 在 profile 里写的
+    DevToolsActivePort，这样旧版本启动的浏览器也能被接管，登录态不会丢。
+    """
+    from DrissionPage import ChromiumPage
+
+    candidates = []
+    try:
+        candidates.append(int(_port_file(platform_key).read_text(encoding="utf-8").strip()))
+    except (OSError, ValueError):
         pass
+    try:
+        active = SESSION_DIR / "dprofiles" / platform_key / "DevToolsActivePort"
+        candidates.append(int(active.read_text(encoding="utf-8").splitlines()[0].strip()))
+    except (OSError, ValueError, IndexError):
+        pass
+    for port in dict.fromkeys(candidates):
+        if not _port_open(port):
+            continue
+        try:
+            page = ChromiumPage("127.0.0.1:%d" % port)
+            if _page_alive(page):
+                return page
+        except Exception:
+            continue
+    return None
 
 
-def _launch_dpage(platform_key):
-    """启动 DrissionPage 浏览器（持久化 profile + 孤儿清理 + 重试），失败返回 None。"""
-    from DrissionPage import ChromiumPage, ChromiumOptions
+def _browser_windows(pid, main_only=False):
+    """列出某个进程的顶层窗口句柄（仅 Windows；其他平台返回空）。
+
+    main_only=True 只返回浏览器主窗口（Chrome_WidgetWin_1 且有标题），
+    避免把 Chrome 的隐藏辅助窗口一起显示出来。
+    """
+    if sys.platform != "win32" or not pid:
+        return []
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    handles = []
+    enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def callback(hwnd, _):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value != pid:
+            return True
+        if main_only:
+            name = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, name, 256)
+            if name.value != "Chrome_WidgetWin_1":
+                return True
+            if user32.GetWindowTextLengthW(hwnd) == 0:
+                return True
+        handles.append(hwnd)
+        return True
+
+    user32.EnumWindows(enum_proc(callback), 0)
+    return handles
+
+
+def _set_browser_visible(page, visible):
+    """隐藏/显示浏览器窗口（Windows；无需 pywin32，用 ctypes 调 user32）。"""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        pid = getattr(getattr(page, "browser", None), "process_id", None)
+        windows = _browser_windows(pid, main_only=bool(visible))
+        if not windows:
+            return False
+        user32 = ctypes.windll.user32
+        for hwnd in windows:
+            user32.ShowWindow(hwnd, 5 if visible else 0)  # SW_SHOW / SW_HIDE
+        return True
+    except Exception:
+        return False
+
+
+def _launch_dpage(platform_key, hidden=False):
+    """启动 DrissionPage 浏览器（持久化 profile + 空闲调试端口），失败给出说明。
+
+    hidden=True 时把窗口移到屏幕外：检索不弹窗，但仍是有头浏览器（不易被识别为无头）。
+    """
+    try:
+        from DrissionPage import ChromiumPage, ChromiumOptions
+    except ImportError as exc:
+        raise RuntimeError("浏览器功能依赖缺失，请安装 requirements-browser.txt") from exc
+    from browser_runtime import find_browser
+    binary, _ = find_browser()
     prof = SESSION_DIR / "dprofiles" / platform_key
     prof.mkdir(parents=True, exist_ok=True)
-    for _ in range(2):
-        co = ChromiumOptions()
-        co.set_local_port(_dpage_port(platform_key))
-        co.set_argument("--no-sandbox")
-        co.set_user_data_path(str(prof))
-        try:
-            return ChromiumPage(co)
-        except Exception:
-            _kill_orphan_browser(_dpage_port(platform_key))
-            import time as _t
-            _t.sleep(1)
-    return None
+    co = ChromiumOptions()
+    import socket
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    co.set_local_port(port)
+    co.set_browser_path(binary)
+    co.set_argument("--no-sandbox")
+    co.headless(config.HEADLESS)
+    if hidden and not config.HEADLESS:
+        # 屏幕外渲染：任务栏和桌面都不会弹窗，URL 仍可正常访问
+        co.set_argument("--window-position=-32000,-32000")
+        co.set_argument("--window-size=1280,900")
+    co.set_user_data_path(str(prof))
+    try:
+        page = ChromiumPage(co)
+    except Exception as exc:
+        raise RuntimeError("浏览器启动失败，请检查浏览器配置及该平台窗口是否仍在运行：%s" % exc) from exc
+    # 配置目录被另一窗口占用时，浏览器会立刻退出：此时对象不可用，必须明确报错
+    time.sleep(0.6)
+    if not _page_alive(page):
+        raise RuntimeError("浏览器启动后立即退出：配置目录 %s 可能正被另一个浏览器窗口占用，"
+                           "请关闭该窗口后重试" % prof)
+    try:
+        _port_file(platform_key).write_text(str(port), encoding="utf-8")
+    except OSError:
+        pass
+    if hidden and not config.HEADLESS:
+        # 屏幕外 + 隐藏窗口：桌面和任务栏都不出现浏览器
+        _set_browser_visible(page, False)
+    return page
+
+
+def _get_page(platform_key, hidden=False):
+    """取一个可用的浏览器：进程内缓存 → 接管旧浏览器 → 新启动。
+
+    hidden=True 只在“需要新开浏览器”时生效；能复用已打开的登录浏览器时不会弹窗，
+    也不会把它移走。
+    """
+    page = _DPAGES.get(platform_key)
+    if page is not None and not _page_alive(page):
+        _DPAGES.pop(platform_key, None)
+        page = None
+    if page is None:
+        page = _attach_existing(platform_key)
+        if page is not None:
+            _HIDDEN_LAUNCH.discard(platform_key)
+        else:
+            page = _launch_dpage(platform_key, hidden=hidden)
+            if hidden and not config.HEADLESS:
+                _HIDDEN_LAUNCH.add(platform_key)
+        _DPAGES[platform_key] = page
+    return page
+
+
+def _write_debug(platform_key, lines):
+    """把检索过程写进 data/search_debug_<平台>.log，便于排查「0 个岗位」。"""
+    try:
+        config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        (config.DATA_DIR / ("search_debug_%s.log" % platform_key)).write_text(
+            "\n".join(lines), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def dpage_open(platform_key):
     """打开 DrissionPage 浏览器到平台登录页（持久化 profile，登录态保存）。"""
     p = platforms.get(platform_key)
 
-    # 复用已保持打开的浏览器（登录态/会话 cookie 驻留其中）
-    page = _DPAGES.get(platform_key)
-    if page is not None:
-        try:
-            page.get(p["login_url"])
-            page.wait(2)
-            # 用平台的 login_check 配置判断登录态（不再硬编码 Boss 路径）
-            cfg = p.get("login_check", {})
-            logged_in = False
-            if cfg.get("type") == "url_not_contains":
-                logged_in = cfg["value"] not in page.url
-            elif cfg.get("type") == "cookie":
-                logged_in = any(c.get("name") == cfg["name"] for c in page.cookies())
-            if logged_in:
-                return True, "已登录（无需扫码），可直接去第③步检索"
-            return True, "已复用登录浏览器，请在浏览器里扫码登录"
-        except Exception:
-            _DPAGES.pop(platform_key, None)
+    if not p:
+        return False, "未知平台：%s" % platform_key
 
-    page = _launch_dpage(platform_key)
+    # 复用已保持打开的浏览器（登录态/会话 cookie 驻留其中）；
+    # 进程重启后缓存为空，但旧浏览器可能还在运行 → _get_page 会先尝试接管它。
+    try:
+        page = _get_page(platform_key)
+    except RuntimeError as exc:
+        return False, str(exc)
     if page is None:
         return False, "浏览器启动失败，请重试"
-    page.get(p["login_url"])
-    page.wait(3)
-    _DPAGES[platform_key] = page
-    return True, "已打开登录页（登录态持久保存）"
+    # 第②步要扫码：如果这个浏览器是检索时“屏幕外/隐藏启动”的，先显示并拉回屏幕
+    if platform_key in _HIDDEN_LAUNCH:
+        _set_browser_visible(page, True)
+        try:
+            page.set.window.normal()
+            page.set.window.location(120, 80)
+        except Exception:
+            pass
+        _HIDDEN_LAUNCH.discard(platform_key)
+    try:
+        page.get(p["login_url"])
+        page.wait(2)
+        cfg = p.get("login_check", {})
+        logged_in = False
+        if cfg.get("type") == "url_not_contains":
+            logged_in = cfg["value"] not in page.url
+        elif cfg.get("type") == "cookie":
+            logged_in = any(c.get("name") == cfg["name"] for c in page.cookies())
+        if logged_in:
+            return True, "已登录（无需扫码），可直接去第③步检索"
+        return True, "已打开/复用登录浏览器，请在浏览器里扫码登录"
+    except Exception as exc:
+        _DPAGES.pop(platform_key, None)
+        return False, "无法打开登录页：%s" % exc
 
 
 def dpage_finish(platform_key):
@@ -458,31 +643,50 @@ def dpage_search(platform_key, keyword, city="", pages=1):
     不自己发请求（规避 code:37 反爬），不用 DOM 提取（规避字体反爬）。
     """
     import json as _json
-    from DrissionPage import ChromiumPage, ChromiumOptions
     from crawler import normalize_fields, _dig
 
     p = platforms.get(platform_key)
+    if not p:
+        return []
+    if not p.get("api_field_map"):
+        from crawler import search_platform
+        got = search_platform(platform_key, keyword, pages=pages, city=city)
+        if not got:
+            _LAST_SEARCH_ERROR[platform_key] = ("HTML 解析未取到岗位：页面可能需要登录/验证码，"
+                                                "或平台选择器已过期")
+        return got
     # 城市名 -> 平台城市码
     search_city = platforms.city_code(platform_key, city) if city else \
         (platforms.city_code(platform_key, "北京") if platform_key == "boss" else "")
-    page = _DPAGES.get(platform_key)
-    own = page is None
-    if own:
-        page = _launch_dpage(platform_key)
-        if page is None:
-            return []
-        # 登录态已持久化在 profile 里，直接导航即可。
-        # 不再注入 boss.pkl 会话级 cookie（会覆盖 profile 登录态，导致被重定向到登录页、薪资被隐藏）。
-        _DPAGES[platform_key] = page  # 保持浏览器打开，会话级登录 cookie 才不会丢失
+    _LAST_SEARCH_ERROR.pop(platform_key, None)
+    try:
+        # 检索默认不弹窗：能复用登录浏览器就复用，需新开则放到屏幕外
+        page = _get_page(platform_key, hidden=config.SEARCH_HIDDEN)
+    except RuntimeError as exc:
+        _LAST_SEARCH_ERROR[platform_key] = str(exc)
+        _write_debug(platform_key, ["浏览器启动失败: %s" % exc])
+        return []
+    # 检索期间把浏览器窗口藏起来：即使复用的是当前可见的登录窗口，也不会「弹」在用户面前
+    if config.SEARCH_HIDDEN and not config.HEADLESS:
+        if _set_browser_visible(page, False):
+            _HIDDEN_LAUNCH.add(platform_key)
 
     jobs = []
     debug = []
+    reason = ""
     try:
         api_kw = p.get("api_listen_kw", "joblist.json")
-        page.listen.start(api_kw)
-        url = p["search_url"]
-        for k, v in {"keyword": keyword, "city": search_city, "page": 1}.items():
-            url = url.replace("{" + k + "}", str(v))
+        try:
+            page.listen.start(api_kw)
+        except Exception as exc:
+            if "浏览器未开启或已关闭" not in str(exc):
+                raise
+            # 浏览器已被关闭（或应用重启后残留失效引用）：丢弃引用、接管/重启浏览器后重试一次
+            _DPAGES.pop(platform_key, None)
+            debug.append("浏览器已关闭，尝试重启后重试")
+            page = _get_page(platform_key, hidden=config.SEARCH_HIDDEN)
+            page.listen.start(api_kw)
+        url = platforms.search_url(platform_key, keyword, city, 1)
         page.get(url)
         page.wait(3)
         debug.append("URL: %s" % page.url[:120])
@@ -492,6 +696,8 @@ def dpage_search(platform_key, keyword, city="", pages=1):
         if _cfg.get("type") == "url_not_contains":
             _expired = _cfg["value"] in page.url
         if _expired:
+            clear_session(platform_key)
+            reason = "登录态已失效（被重定向到登录页），请回第②步重新扫码登录"
             debug.append("登录态失效，已重定向到登录页")
             return []
         # 滚动触发无限滚动翻页（Boss直聘靠滚动加载更多）
@@ -524,12 +730,13 @@ def dpage_search(platform_key, keyword, city="", pages=1):
             if not isinstance(job_list, list):
                 continue
             for item in job_list:
-                if item.get("contact"):  # 已沟通过，跳过（避免重复投递）
+                if str(item.get("contact", "")).lower() in ("true", "1"):
                     continue
                 raw = {}
                 for std, src in p.get("api_field_map", {}).items():
                     raw[std] = _dig(item, src)
                 link = raw.get("岗位链接", "")
+                raw["岗位链接"] = platforms.job_url(platform_key, link)
                 if link and not str(link).startswith("http"):
                     # 按平台拼岗位详情链接（各平台 jobId -> 详情页规则不同）
                     _link_rules = {
@@ -547,29 +754,38 @@ def dpage_search(platform_key, keyword, city="", pages=1):
                 seen.add(key)
                 jobs.append(norm)
         debug.append("去重后岗位数: %d" % len(jobs))
+        if not jobs and not reason:
+            reason = ("未捕获到搜索接口响应：页面可能被风控/验证码拦截，"
+                      "或搜索页未加载完成，请重试")
     except Exception as e:
         debug.append("检索异常: %s" % e)
+        reason = "检索异常：%s" % e
     finally:
         try:
             page.listen.stop()  # 释放网络监听（浏览器保持打开，供下次复用）
         except Exception:
             pass
-        try:
-            (Path(config.BASE_DIR) / "data" / ("search_debug_%s.log" % platform_key)).write_text(
-                "\n".join(debug), encoding="utf-8")
-        except Exception:
-            pass
+        _write_debug(platform_key, debug)
+        if jobs:
+            _LAST_SEARCH_ERROR.pop(platform_key, None)
+        else:
+            _LAST_SEARCH_ERROR[platform_key] = reason or (debug[-1] if debug else "未获取到岗位")
         # 不 quit：保持浏览器打开（登录态/会话 cookie 依赖浏览器驻留），供下次检索与扫码复用
     return jobs
 
 
 def dpage_quit(platform_key):
     page = _DPAGES.pop(platform_key, None)
+    _HIDDEN_LAUNCH.discard(platform_key)
     if page:
         try:
             page.quit()
         except Exception:
             pass
+    try:
+        _port_file(platform_key).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def dpage_open_job(platform_key, job_link):
@@ -615,6 +831,8 @@ def dpage_deliver(platform_key, job_link):
             return False, "触发风控验证，请人工处理后再投递"
         if "未找到" in r:
             return False, "未找到立即沟通按钮（岗位可能已下线或需人工查看）"
+        if r != "已点击立即沟通":
+            return False, "未确认沟通按钮操作成功：%s" % r
         return True, r
     except Exception as e:
         return False, str(e)
@@ -646,6 +864,8 @@ def dpage_greet(platform_key, greeting):
             }
             return sendGreet(%s);
         """ % _json.dumps(greeting, ensure_ascii=False))
-        return True, r
+        if r != "已尝试发送招呼语":
+            return False, str(r)
+        return False, "已尝试发送招呼语，请人工核对平台是否实际送达"
     except Exception as e:
         return False, str(e)

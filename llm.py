@@ -44,8 +44,8 @@ class ConstrainedLLM:
         allowed = set(field_table.keys())
         prompt = (
             "你是一个简历填写助手。任务说明：%s\n"
-            "只允许输出下列字段名对应的值，不得新增任何字段名：%s\n"
-            "严格输出 JSON 对象。" % (task_brief, json.dumps(list(allowed), ensure_ascii=False))
+            "仅根据以下字段原值润色，不得编造事实或新增字段：%s\n"
+            "严格输出 JSON 对象。" % (task_brief, json.dumps(field_table, ensure_ascii=False))
         )
         body = json.dumps({
             "model": self.model or "gpt-4o-mini",
@@ -53,7 +53,7 @@ class ConstrainedLLM:
             "temperature": 0,
         }).encode("utf-8")
         req = urllib.request.Request(
-            (self.base_url or "https://api.openai.com/v1") + "/chat/completions",
+            (self.base_url or "https://api.openai.com/v1").rstrip("/") + "/chat/completions",
             data=body,
             headers={"Content-Type": "application/json",
                      "Authorization": "Bearer " + self.api_key},
@@ -73,4 +73,4 @@ def parse_json_fields(text: str, allowed: set) -> dict:
             data = json.loads(m.group(0))
         except Exception:
             data = {}
-    return {k: str(v) for k, v in data.items() if k in allowed}
+    return {k: str(v) for k, v in data.items() if k in allowed and v is not None and isinstance(v, (str, int, float))}

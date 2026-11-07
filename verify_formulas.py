@@ -22,10 +22,11 @@ def check(name, cond):
 ok = True
 
 print("=== 式一 凸组合 ===")
-v = np.random.rand(4, 128)
-w = np.random.rand(4)
+rng = np.random.default_rng(42)
+v = rng.random((4, 128))
+w = rng.random(4)
 u = formula_1_user_representation(v, w)
-ok &= check("式一权重非负归一", abs(w.sum() - w.sum()) == 0 and True)
+ok &= check("式一权重非负归一", np.allclose(u, (w / w.sum()) @ v))
 ok &= check("式一结果维度正确", u.shape == (128,))
 
 print("=== 式三 逻辑斯谛 ===")
@@ -64,3 +65,7 @@ ok &= check("嵌入模长归一", abs(np.linalg.norm(a) - 1.0) < 1e-9)
 
 print()
 print("=== 全部公式验证", "通过" if ok else "有失败", "===")
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(0 if ok else 1)

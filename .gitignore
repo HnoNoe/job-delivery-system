@@ -1,6 +1,8 @@
 # 运行时产物
 __pycache__/
 *.pyc
+# 本地虚拟环境
+.venv/
 data/
 logs/
 outbox/
@@ -9,3 +11,11 @@ resumes/
 packages/
 # 浏览器持久化登录态（含个人登录信息，切勿提交）
 sessions/
+# 便携版打包产物
+build/
+dist/
+.env
+zhaopin_crawler/browser_data/
+zhaopin_crawler/output/
+zhaopin_crawler/raw/
+zhaopin_crawler/*.log

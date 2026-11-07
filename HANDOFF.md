@@ -1,7 +1,10 @@
 # 项目交接 Prompt（给下一个会话的完整上下文）
 
+> ⚠️ 本文档为 2026-10 的历史交接记录，部分路径/文件名已过期（例如 `profile.py` 已改名 `user_profile.py`）。
+> 当前以 `README.md`（运行/测试）、`BUGFIX_REPORT.md`（本轮修复清单）、`BUGFIX_REVIEW.md`（复核结论）为准。
+
 > 项目：面向大学毕业生的求职批量投递系统（Job Batch Delivery System）
-> 路径：`C:/Users/Camevian/AppData/Local/Cline/job-delivery-system`
+> 路径：以仓库根目录为准（本文原记录的本机路径已失效）
 > 依据：专利技术交底书《一种主要面向大学毕业生的求职批量投递系统及方法》
 
 ---
@@ -53,7 +56,7 @@
 | `schema.py` | 统一字段 schema（L0/L1/L2/L3/JOB/TASK 字段白名单） |
 | `formulas.py` | 五个公式（式一~式五） |
 | `recommend.py` | 匹配分析/等级/推荐理由/画像摘要/招呼语/简历解析 |
-| `verification.py` / `profile.py` / `matching.py` / `tasks.py` | 步骤一~四 |
+| `verification.py` / `user_profile.py` / `matching.py` / `tasks.py` | 步骤一~四 |
 | `generation.py` / `delivery.py` / `feedback.py` | 步骤五~七 |
 | `pipeline.py` / `loop.py` | 流程编排 |
 | `crawler.py` / `platforms.py` / `session.py` / `form_filler.py` | 采集/平台注册/会话/表单投递 |

@@ -7,7 +7,7 @@ import json
 import config
 import db
 import verification
-import profile as profile_mod
+import user_profile as profile_mod
 import matching
 import tasks
 import generation
@@ -18,23 +18,21 @@ import recommend
 
 def store_user(user_data):
     """步骤一：核检通过后写库，返回 user_id。"""
-    conn = db.get_conn()
-    cur = conn.execute(
-        "INSERT INTO user_records (l0, l1, l3) VALUES (?,?,?)",
-        (json.dumps(user_data["l0"], ensure_ascii=False),
-         json.dumps(user_data["l1"], ensure_ascii=False),
-         json.dumps(user_data["l3"], ensure_ascii=False)),
-    )
-    user_id = cur.lastrowid
-    # L2 经历深挖写入 experience_items
-    for idx, item in enumerate(user_data["l2"]):
-        conn.execute(
-            "INSERT INTO experience_items (user_id, exp_index, fields) VALUES (?,?,?)",
-            (user_id, idx, json.dumps(item, ensure_ascii=False)),
+    with db.get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO user_records (l0, l1, l3) VALUES (?,?,?)",
+            (json.dumps(user_data["l0"], ensure_ascii=False),
+             json.dumps(user_data["l1"], ensure_ascii=False),
+             json.dumps(user_data["l3"], ensure_ascii=False)),
         )
-    conn.commit()
-    conn.close()
-    return user_id
+        user_id = cur.lastrowid
+        # L2 经历深挖写入 experience_items
+        for idx, item in enumerate(user_data["l2"]):
+            conn.execute(
+                "INSERT INTO experience_items (user_id, exp_index, fields) VALUES (?,?,?)",
+                (user_id, idx, json.dumps(item, ensure_ascii=False)),
+            )
+        return user_id
 
 
 def run_full_pipeline(user_data, llm=None, jobs=None):
@@ -57,9 +55,9 @@ def run_full_pipeline(user_data, llm=None, jobs=None):
 
     # 步骤三：岗位采集（外部检索结果优先）
     if jobs is not None:
-        matching.store_jobs(jobs)
+        matching.store_jobs(jobs, user_id=user_id)
     else:
-        matching.collect_jobs()
+        matching.collect_jobs(user_id=user_id)
     target_jobs = matching.determine_target_jobs(prof)
 
     # 投递策略：精投只保留 A 级（强匹配），海投保留 B 级以上（去掉 C 级不推荐）
@@ -100,6 +98,7 @@ def run_full_pipeline(user_data, llm=None, jobs=None):
         grade, grade_score = recommend.match_grade(user_data, job)
         job_list.append({
             "task_id": tid,
+            "job_id": x["job_id"],
             "岗位名称": job.get("岗位名称", ""),
             "单位名称": job.get("单位名称", ""),
             "薪资": job.get("薪资", ""),
@@ -120,6 +119,7 @@ def run_full_pipeline(user_data, llm=None, jobs=None):
             "分数明细": recommend.score_breakdown(user_data, job),
             "简历内容": field_maps.get(tid, {}),
             "写入经历": [exp_names[i] for i in included_map.get(tid, []) if i < len(exp_names)],
+            "写入经历索引": included_map.get(tid, []),
             "经历分配": [(exp_names[i], gamma_map.get(tid, [])[i])
                         for i in range(min(len(exp_names), len(gamma_map.get(tid, []))))],
         })
@@ -147,7 +147,7 @@ def re_match(user_id, user_data, jobs=None):
     """
     prof = profile_mod.build_profile(user_id)
     if jobs is not None:
-        matching.store_jobs(jobs)
+        matching.store_jobs(jobs, user_id=user_id)
     target = matching.determine_target_jobs(prof)
 
     # 投递策略过滤（与 run_full_pipeline 一致）

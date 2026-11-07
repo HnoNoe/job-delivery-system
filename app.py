@@ -9,6 +9,8 @@
 视觉层统一走 theme.py（色彩令牌 / CSS 主题 / Plotly 模板），本文件不写裸颜色值。
 """
 import json
+import hashlib
+import time
 import pandas as pd
 import streamlit as st
 
@@ -25,13 +27,29 @@ import recommend
 import pipeline
 import theme
 import viz
+import login_status
+from runtime_paths import resolve_resume
+
+LOGIN_CHECK_TTL = 300  # 秒：页面交互时复用检测结果，避免每次点击都联网
+
+
+def _login_report():
+    """登录态检测结果（启动/刷新时自动检测，交互期间缓存 5 分钟）。"""
+    cached = st.session_state.get("login_report")
+    if cached:
+        ts, data = cached
+        if time.time() - ts < LOGIN_CHECK_TTL:
+            return data
+    data = login_status.check_all()
+    st.session_state["login_report"] = (time.time(), data)
+    return data
 
 
 def _full_width_kwargs() -> dict:
     """表格全宽渲染参数（跨 Streamlit 版本自适应）。
 
     Streamlit ≥1.49 已弃用 use_container_width（2025-12-31 后移除），
-    改用 width='stretch'；requirements.txt 允许 >=1.32，故旧版本回退。
+    改用 width='stretch'；requirements.txt 允许 >=1.46，故旧版本回退。
     """
     try:
         major, minor = (int(x) for x in st.__version__.split(".")[:2])
@@ -58,7 +76,7 @@ def _wizard_states():
     if s4:
         conn = db.get_conn()
         row = conn.execute(
-            "SELECT SUM(status='已投递') AS d, SUM(result<>'') AS f "
+            "SELECT SUM(status='已投递') AS d, SUM(result IN ('进面试','未进面试')) AS f "
             "FROM delivery_tasks WHERE user_id=?", (r["user_id"],)).fetchone()
         conn.close()
         delivered = bool(row and row["d"])
@@ -126,18 +144,22 @@ with st.sidebar:
             session.clear_session(pk)
             session.dpage_quit(pk)  # 同时关闭保持打开的浏览器
         for k in list(st.session_state.keys()):
-            if (k in ("info_confirmed", "logged_in", "jobs", "result", "parsed",
-                      "resume_pdf", "resume_text")
-                    or k.startswith(("l0_", "l2_", "l3_")) or k in ("l1_iw", "l1_proj")):
+            if (k in ("info_confirmed", "confirmed_info", "logged_in", "jobs", "result", "parsed",
+                      "resume_pdf", "resume_text", "parsed_pdf_hash", "rematch", "rematch_old", "prepared_user_data")
+                    or k.startswith(("l0_", "l2_", "l3_", "sel_")) or k in ("l1_iw", "l1_proj")):
                 st.session_state.pop(k, None)
         st.rerun()
     st.divider()
-    st.caption("平台登录状态")
-    for pk, name in platforms.names():
-        _logged = session.has_session(pk)
-        st.markdown(theme.pill("ok" if _logged else "off",
-                               ("● 已登录 · " if _logged else "○ 未登录 · ") + name),
+    st.caption("平台登录状态（启动 / 刷新页面时自动检测）")
+    _report = _login_report()
+    for _s in _report:
+        st.markdown(theme.pill(_s["kind"], "%s · %s" % (_s["label"], _s["name"])),
                     unsafe_allow_html=True)
+        st.caption("　" + _s["detail"])
+    if st.button("🔍 重新检测登录状态", key="btn_login_check"):
+        st.session_state.pop("login_report", None)
+        st.rerun()
+    st.caption("检测时间 %s · 只检测登录态，不抓取数据、不触发投递" % _report[0]["checked_at"])
     st.divider()
     with st.expander("📐 数学说明（分数怎么算）"):
         st.caption(recommend.explain_match_score())
@@ -153,6 +175,9 @@ with st.sidebar:
         st.caption("意向岗位：" + ("、".join(summ.get("意向岗位", [])) or "无"))
         st.caption("意向行业：" + ("、".join(summ.get("意向行业", [])) or "无"))
         st.caption("城市：" + ("、".join(summ.get("意向城市", [])) or "无"))
+
+# 平台 -> 登录检测结果（侧栏/第②步共用）
+_status_by_key = {s["key"]: s for s in _report}
 
 # ================= 步骤① 确认我的信息 =================
 theme.section("①", "确认我的信息",
@@ -185,9 +210,12 @@ with st.expander("查看 / 修改我的信息", expanded=True):
                 st.session_state.pop("parsed", None)
                 st.warning("未能解析，请检查简历文本格式")
         uploaded = st.file_uploader("或上传简历 PDF 自动解析", type=["pdf"], key="resume_pdf")
-        if uploaded is not None:
+        pdf_hash = hashlib.sha256(uploaded.getvalue()).hexdigest() if uploaded is not None else None
+        if uploaded is not None and pdf_hash != st.session_state.get("parsed_pdf_hash"):
             try:
                 import pdfplumber
+                st.session_state["parsed_pdf_hash"] = pdf_hash
+                uploaded.seek(0)
                 with pdfplumber.open(uploaded) as pdf:
                     pdf_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
                 p = recommend.resume_parse(pdf_text)
@@ -228,8 +256,8 @@ with st.expander("查看 / 修改我的信息", expanded=True):
     l1 = {}
     iw_default = sum(1 for x in parsed_exps if x.get("类型") == "实习/工作") if parsed_exps else 1
     proj_default = sum(1 for x in parsed_exps if x.get("类型") == "项目") if parsed_exps else 1
-    l1["实习/工作"] = st.number_input("实习/工作段数", 0, 5, iw_default, key="l1_iw")
-    l1["项目"] = st.number_input("项目段数", 0, 5, proj_default, key="l1_proj")
+    l1["实习/工作"] = st.number_input("实习/工作段数", 0, max(5, iw_default), iw_default, key="l1_iw")
+    l1["项目"] = st.number_input("项目段数", 0, max(5, proj_default), proj_default, key="l1_proj")
     for t in schema.L1_TYPES:
         l1.setdefault(t, 0)
     st.markdown("**🎯 求职意向**")
@@ -275,6 +303,10 @@ with st.expander("查看 / 修改我的信息", expanded=True):
                 l2.append(item)
 
 user_data = {"l0": l0, "l1": l1, "l2": l2, "l3": l3}
+_current_info = json.dumps(user_data, ensure_ascii=False, sort_keys=True)
+if st.session_state.get("confirmed_info") not in (None, _current_info):
+    st.session_state["info_confirmed"] = False
+    st.caption("信息已修改，请重新确认后检索和生成材料。")
 
 if st.button("✅ 确认信息，进入下一步", type="primary"):
     ok, errors = verification.verify(user_data)
@@ -284,6 +316,7 @@ if st.button("✅ 确认信息，进入下一步", type="primary"):
             st.warning("· " + e)
     else:
         st.session_state["info_confirmed"] = True
+        st.session_state["confirmed_info"] = _current_info
         st.success("✅ 信息已确认")
         st.info("👉 下一步：在第 ② 步勾选平台并扫码登录")
 
@@ -300,8 +333,8 @@ for i, k in enumerate(keys):
     with cols[i]:
         if st.checkbox(p["name"], key="sel_" + k, value=(k == "boss")):
             selected.append(k)
-        st.markdown(theme.pill("ok" if session.has_session(k) else "off",
-                               "已登录" if session.has_session(k) else "未登录"),
+        _st = _status_by_key.get(k, {})
+        st.markdown(theme.pill(_st.get("kind", "off"), _st.get("label", "未登录")),
                     unsafe_allow_html=True)
 
 if selected:
@@ -323,7 +356,7 @@ if selected:
             else:
                 st.warning(f"{platforms.get(k)['name']}：{msg}")
 
-logged_in = [k for k in selected if session.has_session(k)]
+logged_in = [k for k in selected if session.is_active(k)]
 if logged_in:
     st.success("🟢 已登录平台：" + "、".join(platforms.get(k)["name"] for k in logged_in))
 
@@ -342,19 +375,24 @@ elif not _login_ok:
     st.caption("🔒 先在第 ② 步勾选平台并完成扫码登录")
 if st.button("🔍 开始检索", type="primary", disabled=not (_info_ok and _login_ok)):
     # 取意向城市第一个，映射为平台城市码
-    city = (user_data["l3"].get("意向城市", "北京") or "北京").split(",")[0].strip()
+    city = (user_data["l3"].get("意向城市", "北京") or "北京").replace("，", ",").split(",")[0].strip()
     st.caption("⏳ 首次检索需启动浏览器并真实搜索，约 30~60 秒，请稍候…")
     with st.spinner("正在真实检索各平台岗位..."):
         jobs, logs = loop.search_logged_in_platforms(logged_in, kw, city=city, pages=int(pages))
     st.session_state["jobs"] = jobs
+    for _key in ("result", "rematch", "rematch_old", "prepared_user_data"):
+        st.session_state.pop(_key, None)
     for k, msg in logs:
         st.caption(f"{platforms.get(k)['name']}：{msg}")
     st.success(f"✅ 共检索到 {len(jobs)} 个岗位")
     st.info("👉 下一步：点击第 ④ 步的「🚀 准备投递材料」")
 if st.session_state.get("jobs") is not None:
-    _jobs_df = pd.DataFrame(st.session_state["jobs"])
-    _cols = [c for c in ["岗位名称", "单位名称", "城市", "薪资", "学历", "经验", "行业"] if c in _jobs_df.columns]
-    show_table(_jobs_df[_cols] if _cols else _jobs_df, hide_index=True)
+    _jobs = st.session_state["jobs"]
+    if _jobs:
+        # 岗位名称是真实链接：点击在新标签页打开原始岗位页
+        st.markdown(theme.jobs_table(_jobs), unsafe_allow_html=True)
+    else:
+        st.caption("本次检索结果为 0 条")
 else:
     theme.empty_state("🔍", "还没有检索结果",
                       "填好关键词后点「开始检索」，岗位列表会显示在这里")
@@ -370,7 +408,7 @@ if not _has_jobs:
     st.caption("🔒 先在第 ③ 步完成检索")
 if _material_ready:
     st.info("✅ 已生成过投递材料，请在第 ⑤ 步查看；如需重新生成，先点侧边栏「🔄 重新开始」")
-if st.button("🚀 准备投递材料", type="primary", disabled=(not _has_jobs) or _material_ready):
+if st.button("🚀 准备投递材料", type="primary", disabled=(not _has_jobs) or _material_ready or not _info_ok):
     with st.spinner("正在画像、匹配、生成简历与招呼语..."):
         result = loop.run_closed_loop(user_data, jobs=st.session_state.get("jobs"))
     if not result["ok"]:
@@ -379,6 +417,7 @@ if st.button("🚀 准备投递材料", type="primary", disabled=(not _has_jobs)
             st.warning("· " + e)
     else:
         st.session_state["result"] = result
+        st.session_state["prepared_user_data"] = json.loads(_current_info)
         st.success(f"✅ 已为 {result['task_count']} 个岗位准备好针对性简历和招呼语")
         st.info("👉 下一步：在第 ⑤ 步逐条确认投递（不会自动群发，不会骚扰 HR）")
 
@@ -387,6 +426,7 @@ st.markdown("---")
 theme.section("⑤", "逐条投递与反馈", status=_states[4])
 r = st.session_state.get("result")
 if r and r.get("ok"):
+    prepared_data = st.session_state.get("prepared_user_data", user_data)
     summ = r.get("画像摘要", {})
     if summ:
         def _j(x):
@@ -401,8 +441,8 @@ if r and r.get("ok"):
     # 画像闭环：反馈后「用新画像重新匹配」，让式三间隔特征 δ 真正生效
     if st.button("🔄 用新画像重新匹配", key="btn_rematch",
                  help="标注进面试/未进面试后，用式五修正的权重 + 正负岗位中心重新打分排序"):
-        st.session_state["rematch"] = pipeline.re_match(r["user_id"], user_data)
-        st.session_state["rematch_old"] = {j["岗位名称"]: j.get("score") for j in r["target_jobs"]}
+        st.session_state["rematch"] = pipeline.re_match(r["user_id"], prepared_data)
+        st.session_state["rematch_old"] = {j.get("job_id", j["岗位名称"]): j.get("score") for j in r["target_jobs"]}
     _rm = st.session_state.get("rematch")
     if _rm is not None:
         with st.expander("📈 重新匹配结果（画像闭环进化）", expanded=True):
@@ -415,7 +455,7 @@ if r and r.get("ok"):
             for x in _rm:
                 _job = x["job"]
                 _name = _job.get("岗位名称", "")
-                _old = round(float(_old_map.get(_name, 0)), 4)
+                _old = round(float(_old_map.get(x.get("job_id", _name), 0)), 4)
                 _new = round(float(x["score"]), 4)
                 _delta = round(float(x["delta"]), 4)
                 st.caption(f"{_name}：匹配分 {_old} → {_new}（δ={_delta}）")
@@ -434,14 +474,14 @@ if r and r.get("ok"):
                         (r["user_id"],)).fetchall()}
     _conn.close()
     # 批量投递（一口气投多个，Boss 直聘「立即沟通」通道）
-    _pending_tids = [tid for tid, (st_, _res) in _task_states.items() if st_ != "已投递"]
+    _pending_tids = [tid for tid, (st_, _res) in _task_states.items() if st_ == "待投递"]
     if _pending_tids:
         st.markdown("**🚀 批量投递（Boss 直聘）**")
         st.caption("按匹配分顺序一键投递 %d 个岗位；受每日上限 %d / 单次批次 %d / 间隔 %d 秒保护，触发风控会自动停止。"
                    % (len(_pending_tids), config.DAILY_SEND_LIMIT, config.BATCH_SEND_LIMIT, config.DELIVER_INTERVAL))
-        if st.button("🚀 批量投递（%d 个）" % len(_pending_tids), key="batch_deliver"):
+        if st.button("🚀 批量投递（%d 个）" % len(_pending_tids), key="batch_deliver", disabled=config.SAFE_MODE):
             with st.spinner("批量投递中（每条间隔 %d 秒，防封号）..." % config.DELIVER_INTERVAL):
-                _batch = delivery.deliver_batch()
+                _batch = delivery.deliver_batch(task_ids=_pending_tids)
             st.success("✅ 批量投递完成：成功 %d / 失败 %d" % (_batch["成功数"], _batch["失败数"]))
             if _batch["停止原因"]:
                 st.warning("⚠️ " + _batch["停止原因"])
@@ -485,7 +525,7 @@ if r and r.get("ok"):
         if _fig is not None:
             theme.chart(_fig)
         # 技能覆盖分析（用户技能 vs 岗位要求技能）
-        _fig, _skills = viz.skill_coverage(_targets, user_data.get("l2", []))
+        _fig, _skills = viz.skill_coverage(_targets, prepared_data.get("l2", []))
         if _fig is not None:
             theme.chart(_fig)
             st.caption("用户技能 %s" % ("、".join(_skills) or "无"))
@@ -504,6 +544,7 @@ if r and r.get("ok"):
             theme.chart(_fig)
     for job in r["target_jobs"]:
         with st.container(border=True):
+            _status, _result = _task_states.get(job["task_id"], ("待生成", None))
             c1, c2, c3, c4 = st.columns([3.4, 1, 1, 1])
             # 卡片头：等级徽章 + 岗位/单位 + 薪资等级分 + 匹配分进度条（theme 构件）
             c1.markdown(theme.job_card_header(job), unsafe_allow_html=True)
@@ -539,17 +580,19 @@ if r and r.get("ok"):
                     # 交互式勾选（专利步骤五「展示供用户修改勾选」）
                     st.caption("**✏️ 修改写入经历（勾选后重新生成）**：")
                     written_names = set(job.get("写入经历", []))
-                    selected = []
-                    for n, g in alloc:
-                        if st.checkbox("%s（γ=%s）" % (n, g), value=(n in written_names),
-                                       key=f"sel_{job['task_id']}_{n}"):
-                            selected.append(n)
-                    if st.button("🔄 按勾选重新生成简历", key=f"regen_{job['task_id']}"):
-                        import profile as profile_mod
+                    written_indices = job.get("写入经历索引")
+                    included_idx = []
+                    for _idx, (n, g) in enumerate(alloc):
+                        if st.checkbox("%s（γ=%s）" % (n, g), value=(_idx in written_indices if written_indices is not None else n in written_names),
+                                       key=f"sel_{job['task_id']}_{_idx}"):
+                            included_idx.append(_idx)
+                    if st.button("🔄 按勾选重新生成简历", key=f"regen_{job['task_id']}",
+                                 disabled=_status in schema.TASK_LOCKED):
+                        import user_profile as profile_mod
                         import generation
                         prof = profile_mod.build_profile(r["user_id"])
-                        included_idx = [i for i, (n, g) in enumerate(alloc) if n in selected]
                         generation.regenerate_one(r["user_id"], prof, job["task_id"], included_idx)
+                        delivery.prepare_batch(r["user_id"], [job["task_id"]], user_data=prepared_data)
                         # 同步 r 里的简历内容与写入经历，让界面立即反映勾选结果
                         conn = db.get_conn()
                         fm = conn.execute("SELECT fields FROM job_field_map WHERE task_id=?",
@@ -558,26 +601,44 @@ if r and r.get("ok"):
                         if fm:
                             job["简历内容"] = json.loads(fm["fields"])
                         job["写入经历"] = [n for i, (n, g) in enumerate(alloc) if i in included_idx]
+                        job["写入经历索引"] = included_idx
                         st.success("已按勾选重新生成简历")
                         st.rerun()
-                link = job.get("岗位链接", "")
-                if link:
+                link = str(job.get("岗位链接", "") or "")
+                if link.lower().startswith(("http://", "https://")):
                     st.markdown(f"[打开岗位详情]({link})")
+                elif link:
+                    st.caption("岗位链接格式无效，已忽略：%s" % link[:60])
+                with db.get_conn() as _download_conn:
+                    _file_row = _download_conn.execute("SELECT resume_path FROM delivery_tasks WHERE task_id=?", (job["task_id"],)).fetchone()
+                _file = resolve_resume(_file_row["resume_path"]) if _file_row else None
+                if _file:
+                    st.download_button("📥 下载针对性简历", data=_file.read_bytes(), file_name=_file.name,
+                                       key=f"download_{job['task_id']}")
             # 用批量查询的任务状态，让按钮反映真实状态（投递后/反馈后禁用）
-            _status, _result = _task_states.get(job["task_id"], ("待生成", None))
-            if c2.button("📤 已投递" if _status == "已投递" else "📤 投递", key=f"del_{job['task_id']}",
-                         disabled=(_status == "已投递")):
+            if _status == "已投递":
+                _deliver_label, _can_deliver = "📤 已投递", False
+            elif _status in ("投递中", "待核实"):
+                _deliver_label, _can_deliver = "⏳ 待核实（请人工确认）", False
+            elif _status == "待投递":
+                _deliver_label = "查看投递材料" if config.SAFE_MODE else "📤 投递"
+                _can_deliver = True
+            else:
+                _deliver_label, _can_deliver = "📤 投递", False
+            if c2.button(_deliver_label, key=f"del_{job['task_id']}", disabled=not _can_deliver):
                 ok, msg = delivery.deliver_one(job["task_id"])
                 if ok:
-                    st.success("✅ 已记录投递（招呼语见上方折叠区）")
+                    st.success(msg)
                 else:
                     st.warning(msg)
+            if c2.button("确认已手动投递", key=f"manual_{job['task_id']}", disabled=_status not in ("待投递", "待核实", "投递中")):
+                delivery.record_manual_delivery(job["task_id"])
                 st.rerun()
-            if c3.button("✅ 进面试", key=f"fb1_{job['task_id']}", disabled=(_result == "进面试")):
+            if c3.button("✅ 进面试", key=f"fb1_{job['task_id']}", disabled=(_result == "进面试" or _status != "已投递")):
                 ok, msg = feedback.mark_result(job["task_id"], 1)
                 st.success("已标记进面试，画像权重已更新") if ok else st.warning(msg)
                 st.rerun()
-            if c4.button("❌ 未进面试", key="fb0_%s" % job["task_id"], disabled=(_result == "未进面试")):
+            if c4.button("❌ 未进面试", key="fb0_%s" % job["task_id"], disabled=(_result == "未进面试" or _status != "已投递")):
                 ok, msg = feedback.mark_result(job["task_id"], 0)
                 st.success("已标记未进面试，画像权重已更新") if ok else st.warning(msg)
                 st.rerun()
@@ -590,6 +651,7 @@ st.markdown("---")
 theme.section("⑥", "投递记录与画像统计", status=_states[5])
 _r = st.session_state.get("result")
 if _r and _r.get("ok"):
+    _record_data = st.session_state.get("prepared_user_data", user_data)
     conn = db.get_conn()
     tasks = conn.execute(
         "SELECT * FROM delivery_tasks WHERE user_id=? ORDER BY task_id", (_r["user_id"],)
@@ -616,7 +678,7 @@ if _r and _r.get("ok"):
         if len(ev) >= 2:
             with st.expander("📈 画像演进（经历权重随反馈变化）", expanded=True):
                 import json as _json
-                exp_names = [e.get("名称", "经历%d" % i) for i, e in enumerate(user_data.get("l2", []))]
+                exp_names = [e.get("名称", "经历%d" % i) for i, e in enumerate(_record_data.get("l2", []))]
                 w_rows = []
                 for i, e in enumerate(ev):
                     w = _json.loads(e["weights"])
@@ -629,7 +691,7 @@ if _r and _r.get("ok"):
                 st.caption("权重增大 = 该经历更受认可（进面试）；权重减小 = 相对不受认可。正负中心 = 岗位正/负样本均值（式三间隔特征用）")
         # 数学统计可视化：投递结果饼图 + 经历权重饼图
         import json as _json
-        _res = [t["result"] for t in tasks if t["result"]]
+        _res = [t["result"] for t in tasks if t["result"] in feedback.RESULTS]
         _has_ev = bool(ev) and bool(_json.loads(ev[-1]["weights"])) if ev else False
         if _res or _has_ev:
             with st.expander("📊 数学统计可视化（投递结果·经历权重）", expanded=True):
@@ -643,7 +705,7 @@ if _r and _r.get("ok"):
                 with _w2:
                     if _has_ev:
                         _lastw = _json.loads(ev[-1]["weights"])
-                        _expn = [e.get("名称", "经历%d" % i) for i, e in enumerate(user_data.get("l2", []))]
+                        _expn = [e.get("名称", "经历%d" % i) for i, e in enumerate(_record_data.get("l2", []))]
                         _fig = viz.weight_pie(_lastw, _expn)
                         if _fig is not None:
                             theme.chart(_fig)

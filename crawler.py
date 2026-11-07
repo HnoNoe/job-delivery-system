@@ -12,6 +12,8 @@
 """
 import re
 import time
+from urllib.parse import urljoin, unquote, urlparse
+from urllib.request import url2pathname
 import requests
 from bs4 import BeautifulSoup
 
@@ -67,15 +69,21 @@ def normalize_fields(raw: dict) -> dict:
 def fetch_html(url: str, timeout: int = 15, retries: int = 2, **kwargs) -> str:
     """带重试与限速的 HTML 抓取。支持本地文件路径与 http(s) URL。"""
     import os
+    url = str(url)
     if url.startswith("file://"):
-        url = url[len("file://"):]
+        parsed = urlparse(url)
+        url = url2pathname(unquote(parsed.path))
+        if parsed.netloc and parsed.netloc != "localhost":
+            url = "//" + parsed.netloc + url
     if os.path.isfile(url):  # 本地文件（演示用）
         with open(url, encoding="utf-8") as f:
             return f.read()
     last = None
+    headers = dict(DEFAULT_HEADERS)
+    headers.update(kwargs.pop("headers", {}) or {})
     for attempt in range(retries + 1):
         try:
-            r = requests.get(url, headers=DEFAULT_HEADERS, timeout=timeout, **kwargs)
+            r = requests.get(url, headers=headers, timeout=timeout, **kwargs)
             r.raise_for_status()
             r.encoding = r.apparent_encoding or "utf-8"
             return r.text
@@ -91,17 +99,11 @@ def fetch_html_js(url: str, wait: int = 3) -> str:
     适用于招聘岗位列表由前端 JS 动态加载的站点（如 BOSS直聘、拉勾等）。
     需本机有 Chrome/Edge。
     """
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-    opts = Options()
-    opts.add_argument("--headless")
-    opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-gpu")
-    opts.add_argument("--disable-blink-features=AutomationControlled")
-    driver = webdriver.Chrome(options=opts)
+    from session import _new_driver
+    driver = _new_driver(headless=True)
     try:
         driver.get(url)
-        driver.implicitly_wait(wait)
+        time.sleep(wait)
         return driver.page_source
     finally:
         driver.quit()
@@ -144,7 +146,7 @@ class HtmlJobSource:
         for p in range(1, pages + 1):
             url = _resolve_url(self.cfg["url"], p)
             html = fetch_html_js(url) if render_js else fetch_html(url)
-            soup = BeautifulSoup(html, "lxml")
+            soup = BeautifulSoup(html, "html.parser")
             items = soup.select(self.cfg.get("item_selector", "li"))
             if not items:
                 break
@@ -158,7 +160,7 @@ class HtmlJobSource:
         for field, sel in self.cfg.get("fields", {}).items():
             el = it.select_one(sel)
             if field in ("岗位链接", "投递入口地址") and el and el.get("href"):
-                raw[field] = _abs_url(el["href"], self.cfg.get("base_url"))
+                raw[field] = _abs_url(el["href"], self.cfg.get("base_url") or self.cfg["url"])
             elif el:
                 raw[field] = el.get_text(" ", strip=True)
         raw.setdefault("投递入口类型", "")
@@ -169,11 +171,7 @@ class HtmlJobSource:
 def _abs_url(url: str, base: str) -> str:
     if not url:
         return ""
-    if url.startswith("http"):
-        return url
-    if base:
-        return base.rstrip("/") + "/" + url.lstrip("/")
-    return url
+    return urljoin(base or "", url)
 
 
 def _classify_entry(addr: str, preset: str) -> str:
@@ -208,12 +206,10 @@ def search_platform(platform_key, keyword, pages=1, city=""):
     jobs = []
     try:
         for pg in range(1, pages + 1):
-            url = p["search_url"]
-            for k, v in {"keyword": keyword, "city": city, "page": pg}.items():
-                url = url.replace("{" + k + "}", str(v))
+            url = plat.search_url(platform_key, keyword, city, pg)
             driver.get(url)
             time.sleep(3)  # 等待渲染
-            soup = BeautifulSoup(driver.page_source, "lxml")
+            soup = BeautifulSoup(driver.page_source, "html.parser")
             items = soup.select(p.get("item_selector", "li"))
             if not items:
                 break
@@ -222,7 +218,7 @@ def search_platform(platform_key, keyword, pages=1, city=""):
                 for field, sel in p.get("fields", {}).items():
                     el = it.select_one(sel)
                     if field in ("岗位链接", "投递入口地址") and el and el.get("href"):
-                        raw[field] = _abs_url(el["href"], "")
+                        raw[field] = _abs_url(el["href"], url)
                     elif el:
                         raw[field] = el.get_text(" ", strip=True)
                 raw.setdefault("投递入口类型", "")
@@ -235,6 +231,12 @@ def search_platform(platform_key, keyword, pages=1, city=""):
 
 def collect_from_sources(sources) -> list:
     """遍历多个来源，采集并核对字段。返回 list[岗位dict]。"""
+    all_jobs = []
+    for src in sources or []:
+        all_jobs.extend(HtmlJobSource(src).collect())
+    return all_jobs
+
+
 def search_via_requests(platform_key, keyword, city="", pages=1):
     """用保存的登录 cookie 通过 requests 检索（不启动浏览器，不被反爬检测）。
 
@@ -245,6 +247,8 @@ def search_via_requests(platform_key, keyword, city="", pages=1):
     import session
 
     p = plat.get(platform_key)
+    if not p:
+        return []
     cookies = session.load_session(platform_key)
     if not cookies:
         return []
@@ -254,10 +258,9 @@ def search_via_requests(platform_key, keyword, city="", pages=1):
     api_url = p.get("api_url")
     if api_url:
         for pg in range(1, pages + 1):
-            url = api_url
-            for k, v in {"keyword": keyword, "city": city, "page": pg}.items():
-                url = url.replace("{" + k + "}", str(v))
+            url = plat.search_url(platform_key, keyword, city, pg, api=True)
             r = requests.get(url, cookies=cookie_dict, headers=DEFAULT_HEADERS, timeout=15)
+            r.raise_for_status()
             data = r.json()
             job_list = _dig(data, p.get("api_jobs_path", ""))
             if not isinstance(job_list, list):
@@ -266,15 +269,15 @@ def search_via_requests(platform_key, keyword, city="", pages=1):
                 raw = {}
                 for std, src in p.get("api_field_map", {}).items():
                     raw[std] = _dig(item, src)
+                raw["岗位链接"] = plat.job_url(platform_key, raw.get("岗位链接", ""))
                 raw.setdefault("投递入口类型", "")
                 jobs.append(normalize_fields(raw))
     else:
         for pg in range(1, pages + 1):
-            url = p["search_url"]
-            for k, v in {"keyword": keyword, "city": city, "page": pg}.items():
-                url = url.replace("{" + k + "}", str(v))
+            url = plat.search_url(platform_key, keyword, city, pg)
             r = requests.get(url, cookies=cookie_dict, headers=DEFAULT_HEADERS, timeout=15)
-            soup = BeautifulSoup(r.text, "lxml")
+            r.raise_for_status()
+            soup = BeautifulSoup(r.text, "html.parser")
             items = soup.select(p.get("item_selector", "li"))
             if not items:
                 break
@@ -283,7 +286,7 @@ def search_via_requests(platform_key, keyword, city="", pages=1):
                 for field, sel in p.get("fields", {}).items():
                     el = it.select_one(sel)
                     if field in ("岗位链接", "投递入口地址") and el and el.get("href"):
-                        raw[field] = _abs_url(el["href"], "")
+                        raw[field] = _abs_url(el["href"], url)
                     elif el:
                         raw[field] = el.get_text(" ", strip=True)
                 raw.setdefault("投递入口类型", "")
@@ -302,11 +305,3 @@ def _dig(obj, path):
         else:
             return ""
     return cur
-
-    all_jobs = []
-    for src in sources:
-        collector = HtmlJobSource(src)
-        jobs = collector.collect()
-        all_jobs.extend(jobs)
-        time.sleep(0.5)  # 限速（礼貌抓取）
-    return all_jobs

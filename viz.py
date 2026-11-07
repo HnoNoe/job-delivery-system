@@ -55,7 +55,7 @@ def score_bar(targets):
 def evolution_bar(rematch, old_map):
     """匹配分进化对比（反馈前 vs 反馈后，式三 δ 生效可视化）。"""
     rows = [{"岗位": x["job"].get("岗位名称", "")[:10],
-             "反馈前": round(float(old_map.get(x["job"].get("岗位名称", ""), 0)), 4),
+             "反馈前": round(float(old_map.get(x.get("job_id", x["job"].get("岗位名称", "")), 0)), 4),
              "反馈后": round(float(x["score"]), 4)} for x in rematch]
     if not rows:
         return None
@@ -166,11 +166,11 @@ def pca_scatter(user_id):
     """岗位语义空间 PCA 散点图（★=用户画像）。降维失败或数据不足返回 None。"""
     try:
         import numpy as np
-        import profile as profile_mod
+        import user_profile as profile_mod
         prof = profile_mod.build_profile(user_id)
         uv = prof.get("user_vec")
         conn = db.get_conn()
-        jrows = conn.execute("SELECT fields, embedding FROM jobs").fetchall()
+        jrows = conn.execute("SELECT j.fields, j.embedding FROM jobs j JOIN user_jobs u ON u.job_id=j.job_id WHERE u.user_id=?", (user_id,)).fetchall()
         conn.close()
         vecs, names = [], []
         for jr in jrows:

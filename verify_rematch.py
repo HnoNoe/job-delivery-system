@@ -3,6 +3,9 @@ import sys
 import io
 import json
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+from test_support import isolate_test_environment
+isolate_test_environment()
+
 import config, db, pipeline, feedback
 
 config.SAFE_MODE = True

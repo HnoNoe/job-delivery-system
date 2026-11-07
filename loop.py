@@ -19,11 +19,16 @@ def search_logged_in_platforms(platform_keys, keyword, city="", pages=1):
     jobs, logs = [], []
     for k in platform_keys or []:
         p = platforms.get(k)
-        if not p.get("api_field_map"):
-            logs.append((k, "该平台暂未适配检索（缺接口字段映射）"))
+        if not p:
+            logs.append((k, "未知平台"))
             continue
         if session.is_active(k):
-            got = session.dpage_search(k, keyword, city=city, pages=pages)
+            try:
+                got = (crawler.search_via_requests(k, keyword, city=city, pages=pages) if k == "mock"
+                       else session.dpage_search(k, keyword, city=city, pages=pages))
+            except Exception as exc:
+                logs.append((k, "检索失败：%s" % exc))
+                continue
         else:
             logs.append((k, "未登录，跳过"))
             continue
@@ -31,7 +36,8 @@ def search_logged_in_platforms(platform_keys, keyword, city="", pages=1):
         if got:
             logs.append((k, "检索到 %d 个岗位" % len(got)))
         else:
-            logs.append((k, "检索到 0 个岗位（登录态可能失效，请回到第②步重新扫码登录）"))
+            reason = session.last_search_error(k)
+            logs.append((k, "检索到 0 个岗位：%s" % (reason or "登录态可能失效，请回到第②步重新扫码登录")))
     return jobs, logs
 
 

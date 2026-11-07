@@ -33,6 +33,9 @@ for lst_name in ("L0_FIELDS", "L1_TYPES", "L2_FIELDS", "L3_FIELDS",
     ok &= check("%s 无重复字段" % lst_name, len(lst) == len(set(lst)))
 
 print("=== ② config：超参数合法域 ===")
+from test_support import isolate_test_environment
+isolate_test_environment()
+
 import config
 ok &= check("式三权重非负且不同时为 0",
             config.W_S >= 0 and config.W_DELTA >= 0 and (config.W_S + config.W_DELTA) > 0)
@@ -44,7 +47,7 @@ ok &= check("防封参数自洽（每日上限 ≥ 单次批次 ≥ 1，间隔 �
 ok &= check("SAFE_MODE 默认为开启", config.SAFE_MODE is True)
 
 print("=== ③ 模块可干净导入 ===")
-_MODULES = ["schema", "config", "db", "formulas", "embedding", "profile",
+_MODULES = ["schema", "config", "db", "formulas", "embedding", "user_profile", "login_status",
             "matching", "tasks", "verification", "recommend", "generation",
             "feedback", "delivery", "pipeline", "loop", "platforms", "session",
             "crawler", "form_filler", "llm", "logging_setup", "theme", "viz"]

@@ -1,11 +1,15 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-echo ============================================
-echo   求职批量投递系统 —— 一键启动
-echo   启动后会自动打开浏览器，按页面步骤操作
-echo ============================================
-python start.py
-echo.
-echo 启动完成。如浏览器未自动打开，请手动访问 http://localhost:8501
-pause
+set "JOB_PYTHON=python"
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" -c "import sys" >nul 2>nul
+    if not errorlevel 1 set "JOB_PYTHON=.venv\Scripts\python.exe"
+)
+"%JOB_PYTHON%" start.py %*
+set "JOB_EXIT=%ERRORLEVEL%"
+if not "%JOB_EXIT%"=="0" (
+    echo Startup failed. Run: python setup_env.py
+    pause
+)
+exit /b %JOB_EXIT%

@@ -48,9 +48,10 @@
 | `crawler.py` | 岗位采集（字段别名映射 + 核对 + 登录态检索） |
 | `platforms.py` | 招聘平台注册表（Boss/智联/拉勾/猎聘/51job + 城市码 + 接口字段映射） |
 | `session.py` | 会话管理（DrissionPage 扫码登录 + 旁听接口 + 投递/打招呼） |
+| `login_status.py` | 登录态检测（启动/刷新自动检测；本地判断 + 可选联网校验） |
 | `formulas.py` | 五个核心公式（式一~式五） |
 | `recommend.py` | 多维度匹配 + 匹配等级 + 推荐理由 + 画像摘要 + 个性化招呼语 |
-| `verification.py` / `profile.py` / `matching.py` / `tasks.py` | 步骤一~四 |
+| `verification.py` / `user_profile.py` / `matching.py` / `tasks.py` | 步骤一~四 |
 | `generation.py` / `delivery.py` / `feedback.py` | 步骤五~七 |
 | `pipeline.py` / `loop.py` | 流程编排 |
 | `app.py` | Web Dashboard（6 步向导） |
@@ -59,13 +60,75 @@
 
 ## 快速运行
 
-```bash
-cd job-delivery-system
-pip install -r requirements.txt
-python start.py        # 或双击 start.bat，自动启动并打开浏览器
+需要 Python 3.10+（推荐 3.11–3.13）。Windows、macOS、Linux 使用同一套 Python 入口；本轮实际验证环境与未验证项见 `BUGFIX_REPORT.md`。
+
+```powershell
+cd "E:\work\deepseek_workspace\项目相关\job-delivery-system"
+python setup_env.py --browser
+python start.py
 ```
 
+macOS/Linux 使用 `python3 setup_env.py --browser`，然后 `python3 start.py` 或 `sh start.sh`。Windows 也可双击 `start.bat`。`--browser` 安装登录/采集/表单依赖；仍需本机安装 Chrome、Edge 或 Chromium。仅使用本地匹配和材料生成时可省略 `--browser`。
+
+独立智联采集器需要额外依赖：`python setup_env.py --crawler`；真实采集无本机浏览器时还需用项目虚拟环境执行 `python -m playwright install chromium`。`zhaopin_crawler/main.py --demo` 本身不需要 Playwright 浏览器。
+
+复制到另一台机器时不要携带 `.venv`，在目标机器重新执行 `setup_env.py`。要保留业务记录，复制 `data/`、`resumes/`、`packages/`；浏览器登录请在新机器重新完成。旧数据库启动时自动添加字段和索引，不清空表。旧代码已经删除的岗位或无法关联到任务的历史样本不能凭空恢复。
+
+常用启动命令：
+
+```powershell
+python start.py --check                 # 核心依赖诊断
+python start.py --no-browser --port 0   # 自动选端口，打印访问地址
+python start.py --foreground            # 前台运行，Ctrl+C 停止
+```
+
+默认端口 8501 被占用时自动选择空闲端口，请以控制台打印的地址为准。无 GUI 的服务器使用 `--no-browser`；自动化浏览器可通过 `JOBDELIVERY_HEADLESS=1` 运行。
+
+配置环境变量后再启动（不会自动加载 `.env` 文件）：
+
+| 变量 | 用途 |
+|---|---|
+| `JOBDELIVERY_HOME` | 可写的运行目录，存数据库、日志、简历、材料包、会话；默认项目目录 |
+| `JOBDELIVERY_DB` | 可选的数据库文件完整路径 |
+| `JOBDELIVERY_BROWSER` | 可选的 Chrome/Edge/Chromium 可执行文件完整路径 |
+| `JOBDELIVERY_HEADLESS` | `1` 启用无界面浏览器，仅适合不需人工扫码的场景 |
+| `JOBDELIVERY_SEARCH_HIDDEN` | `0` 关闭“检索静默”：默认检索不弹窗（复用登录浏览器；需新开时把窗口移到屏幕外并隐藏） |
+| `JOBDELIVERY_LOGIN_CHECK` | `0` 关闭登录态联网校验（只做本地判断，完全离线） |
+| `JOBDELIVERY_LOGIN_CHECK_TIMEOUT` | 登录态探测的 HTTP 超时秒数，默认 `6` |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` | 邮件配置，默认 SSL 端口 465 |
+
+安全模式下「查看投递材料」保持待投递；完成手动发送后再点「确认已手动投递」。HTTP 超时、浏览器提交未确认时进入「待核实」，核对平台记录后再确认，避免重复发送。
+
+`requirements-tested.txt` 保存本轮 Windows/Python 3.13 干净环境的依赖快照，可用于复现该环境；跨平台安装优先使用 `requirements.txt`。
+
+## 便携版（单文件 exe）
+
+双击 `JobDeliverySystem.exe` 即用，**目标机器不需要安装 Python**：
+
+```powershell
+# 构建（需要 .NET 无要求；PyInstaller 会用到 pip）
+build_portable.bat                  # 等价于：set PORTABLE_ONEFILE=1 && pyinstaller portable.spec
+# 产物
+dist\JobDeliverySystem.exe          # 单文件，约 130 MB
+```
+
+- 首次启动会把依赖解压到临时目录（约 10–15 秒），之后打开 <http://127.0.0.1:8501>；
+- 运行数据（`data/`、`resumes/`、`packages/`、`sessions/`、`logs/`）默认写在 **exe 同目录**，整个文件夹可直接拷到 U 盘；目录不可写时回退 `%LOCALAPPDATA%\JobDeliverySystem`；
+- 环境自检：`JobDeliverySystem.exe --check`（打印依赖版本与浏览器路径）；
+- `--no-browser` 启动时不自动开浏览器；`JOBDELIVERY_PORT` 可指定端口（占用会自动换）；
+- 真实平台登录/检索仍需要目标机器装有 Chrome / Edge（Windows 自带 Edge）；
+- exe 未签名，Windows SmartScreen 可能提示“未知发布者”，选择“仍要运行”即可。
+
 ## 回归测试
+
+一条命令执行全部核心回归（Windows 使用 `.venv\Scripts\python.exe`，macOS/Linux 使用 `.venv/bin/python`）：
+
+```powershell
+.venv\Scripts\python.exe run_checks.py
+.venv\Scripts\python.exe verify_browser.py  # 可选：需要浏览器依赖及本机浏览器，只访问本地测试站
+```
+
+各测试使用独立临时数据库、会话目录和随机本地端口，避免修改真实数据。缺少可选 Selenium 时，核心回归会跳过对应表单测试；本机完整环境已执行该测试。
 
 离线回归测试（不联网、不启动浏览器）：
 ```bash
@@ -165,7 +228,7 @@ python mock_e2e.py               # 检索→画像→匹配→生成简历→投
 | 架构层级 | 模块 |
 |---|---|
 | ① 用户输入层 | `app.py` + `verification.py` |
-| ② 模型层1-用户画像 | `profile.py`（式一） |
+| ② 模型层1-用户画像 | `user_profile.py`（式一，避免遮蔽标准库 profile） |
 | ③ 操作层1-信息匹配 | `matching.py`（式二、式三） |
 | ④ 操作层2-建立任务 | `tasks.py` |
 | ⑤ 模型层2-任务执行 | `generation.py`（式四 + PDF 简历） |

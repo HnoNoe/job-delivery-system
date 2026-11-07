@@ -4,23 +4,28 @@
 L2 该类型填报卡片数须为 N，不一致则停留在填写页。
 """
 import re
+from datetime import date
 import schema
 
 
 def verify(user_data) -> tuple:
     """核检用户信息。返回 (通过?, 错误列表)。"""
     errors = []
+    if not isinstance(user_data, dict):
+        return False, ["用户信息须为对象"]
     l0 = user_data.get("l0", {})
     l1 = user_data.get("l1", {})
     l2 = user_data.get("l2", [])
     l3 = user_data.get("l3", {})
+    if not all(isinstance(x, dict) for x in (l0, l1, l3)) or not isinstance(l2, list) or not all(isinstance(x, dict) for x in l2):
+        return False, ["L0/L1/L3 须为对象，L2 须为经历对象列表"]
 
     # 必填项
     for f in schema.L0_REQUIRED:
-        if not str(l0.get(f, "")).strip():
+        if l0.get(f) is None or not str(l0.get(f, "")).strip():
             errors.append(f"L0 必填项「{f}」为空")
     for f in schema.L3_REQUIRED:
-        if not str(l3.get(f, "")).strip():
+        if l3.get(f) is None or not str(l3.get(f, "")).strip():
             errors.append(f"L3 必填项「{f}」为空")
 
     # 手机 11 位
@@ -36,8 +41,13 @@ def verify(user_data) -> tuple:
     # 日期格式 YYYY-MM-DD
     for f in ["出生日期"]:
         v = str(l0.get(f, ""))
-        if v and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
-            errors.append(f"日期「{f}」格式须为 YYYY-MM-DD")
+        if v:
+            try:
+                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+                    raise ValueError(v)
+                date.fromisoformat(v)
+            except ValueError:
+                errors.append(f"日期「{f}」须为有效的 YYYY-MM-DD 日期")
 
     # 经历卡片关键字段非空（名称或事项至少填一项，避免空经历进入画像）
     for item in l2:
@@ -48,9 +58,18 @@ def verify(user_data) -> tuple:
     l2_by_type = {}
     for item in l2:
         t = item.get("类型", "")
+        if t not in schema.L1_TYPES:
+            errors.append("未知经历类型：%s" % t)
         l2_by_type[t] = l2_by_type.get(t, 0) + 1
     for t in schema.L1_TYPES:
-        n = int(l1.get(t, 0) or 0)
+        value = l1.get(t, 0) or 0
+        try:
+            n = int(value)
+            if n < 0 or str(n) != str(value).strip():
+                raise ValueError(value)
+        except (ValueError, TypeError):
+            errors.append(f"L1「{t}」条数须为非负整数")
+            continue
         if l2_by_type.get(t, 0) != n:
             errors.append(f"L1「{t}」条数为 {n}，但 L2 填报卡片数为 {l2_by_type.get(t, 0)}，须一致")
 

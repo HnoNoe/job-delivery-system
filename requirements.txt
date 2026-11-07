@@ -1,18 +1,13 @@
-streamlit>=1.32
-numpy>=1.24
-pandas>=2.0
-matplotlib>=3.7
-plotly>=5.18
-DrissionPage>=4.0
-reportlab>=4.0
-beautifulsoup4>=4.12
-lxml>=4.9
-requests>=2.31
-pdfplumber>=0.10
-# Web 表单投递 / JS 渲染采集用（可选，非核心路径）
-selenium>=4.15
+streamlit>=1.46,<2
+numpy>=1.24,<3
+pandas>=2.0,<4
+plotly>=5.18,<8
+reportlab>=4.0,<6
+beautifulsoup4>=4.12,<5
+pdfplumber>=0.10,<1
+requests>=2.31,<3
+# 浏览器登录/动态采集/自动填表：另装 requirements-browser.txt
 # 可选：真实语义嵌入（未安装时自动回退到离线哈希嵌入）
 # sentence-transformers>=2.2
 # 可选：真实生成式AI（未安装时使用字段约束桩）
 # openai>=1.0
-
