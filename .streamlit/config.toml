@@ -1,0 +1,8 @@
+# 固定为浅色主题：应用整体按浅底设计，跟随系统深色时会出现"黑底灰字"。
+[theme]
+base = "light"
+primaryColor = "#4F46E5"
+backgroundColor = "#F7F8FC"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#0F172A"
+font = "sans serif"

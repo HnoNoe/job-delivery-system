@@ -44,10 +44,6 @@ EVOLUTION = {"反馈前": MUTED, "反馈后": PRIMARY}
 FONT_STACK = ('"PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", '
               '"Source Han Sans SC", system-ui, sans-serif')
 
-# 按钮专用字体：优先黑体（Windows SimHei / 黑体，macOS Heiti SC），加粗后按钮文字更清晰
-BUTTON_FONT = ('"SimHei", "黑体", "Heiti SC", "Microsoft YaHei", "PingFang SC", '
-               '"Noto Sans CJK SC", system-ui, sans-serif')
-
 GRADIENT = f"linear-gradient(120deg, {PRIMARY} 0%, {VIOLET} 55%, {PURPLE} 100%)"
 
 
@@ -240,7 +236,7 @@ CSS = f"""
 html, body, [class*="css"] {{ font-family: {FONT_STACK}; }}
 h1, h2, h3, h4 {{ color: {INK}; letter-spacing: .01em; }}
 p, li, .stMarkdown {{ color: {SLATE}; }}
-.stCaption, [data-testid="stCaptionContainer"] {{ color: {MUTED} !important; }}
+.stCaption, [data-testid="stCaptionContainer"] {{ color: #64748B !important; }}
 hr {{ border: none; border-top: 1px solid {LINE}; margin: 1.6rem 0 .6rem; }}
 
 /* ===== 顶部品牌横幅 ===== */
@@ -311,12 +307,20 @@ hr {{ border: none; border-top: 1px solid {LINE}; margin: 1.6rem 0 .6rem; }}
 
 /* ===== 按钮 ===== */
 .stButton > button {{
-  border-radius: 10px; font-weight: 700; font-family: {BUTTON_FONT};
-  font-size: .95rem; letter-spacing: .01em; border: 1px solid {LINE};
+  border-radius: 10px; font-weight: 400; font-family: {FONT_STACK};
+  font-size: .95rem; letter-spacing: .01em; border: 1px solid #C7D2FE;
+  background: #EEF2FF; color: {INK};
+  -webkit-text-fill-color: {INK};
   transition: transform .08s ease, box-shadow .15s ease;
+}}
+/* Streamlit 会把按钮文字包在 <p> 里，而全局 p 的颜色是 SLATE，
+   深色主题下就变成"黑底灰字"。这里让按钮内所有文字继承按钮颜色。 */
+.stButton > button p, .stButton > button div, .stButton > button span {{
+  color: inherit !important; -webkit-text-fill-color: inherit !important;
 }}
 .stButton > button:hover {{
   transform: translateY(-1px);
+  background: #E0E7FF;
   box-shadow: 0 6px 16px -8px rgba(15, 23, 42, .35);
 }}
 .stButton > button[kind="primary"] {{
@@ -325,6 +329,7 @@ hr {{ border: none; border-top: 1px solid {LINE}; margin: 1.6rem 0 .6rem; }}
   text-shadow: 0 1px 2px rgba(15, 23, 42, .28);
   box-shadow: 0 8px 20px -8px rgba(79, 70, 229, .6);
 }}
+.stButton > button[kind="primary"]:hover {{ background: {GRADIENT}; }}
 /* 禁用/运行中：原来 opacity:.45 + 半透明白字，文字几乎看不见。
    改为浅紫实底 + 近黑黑体字，不降透明度，保持可读。 */
 .stButton > button:disabled {{
@@ -371,7 +376,15 @@ hr {{ border: none; border-top: 1px solid {LINE}; margin: 1.6rem 0 .6rem; }}
 [data-testid="stMetricValue"] {{ color: {INK}; font-weight: 800; }}
 
 /* ===== 提示条圆角统一 ===== */
-[data-testid="stAlert"] {{ border-radius: 12px; }}
+[data-testid="stAlert"] {{
+  border-radius: 12px; border: 1px solid {LINE};
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+}}
+/* 提示条同理：全局 p 的灰色会盖掉 success/info/warning 的文字颜色 */
+[data-testid="stAlert"] p, [data-testid="stAlert"] li,
+[data-testid="stAlert"] [data-testid="stMarkdownContainer"] {{
+  color: #0F172A !important; font-weight: 400;
+}}
 
 /* ===== 侧栏 ===== */
 [data-testid="stSidebar"] {{
