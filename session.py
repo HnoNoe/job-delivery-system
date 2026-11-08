@@ -500,6 +500,75 @@ def _set_browser_visible(page, visible):
         return False
 
 
+def _windows_by_title(hint):
+    """按窗口标题关键字找 Chrome 主窗口（进程 pid 拿不到时的兜底）。"""
+    if sys.platform != "win32" or not hint:
+        return []
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        handles = []
+        enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        def callback(hwnd, _):
+            name = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, name, 256)
+            if name.value != "Chrome_WidgetWin_1":
+                return True
+            buf = ctypes.create_unicode_buffer(512)
+            user32.GetWindowTextW(hwnd, buf, 512)
+            if hint in buf.value:
+                handles.append(hwnd)
+            return True
+
+        user32.EnumWindows(enum_proc(callback), 0)
+        return handles
+    except Exception:
+        return []
+
+
+def _show_page_window(page, left=120, top=80, title_hint=""):
+    """把窗口恢复为可见并拉回屏幕内。
+
+    检索时窗口可能是“屏幕外启动/被 SW_HIDE”的；应用重启后 _HIDDEN_LAUNCH
+    会丢，光看这个集合判断是否恢复并不可靠，所以这里直接用 CDP 强制设置窗口边界。
+    """
+    moved = False
+    try:
+        info = page.run_cdp("Browser.getWindowForTarget") or {}
+        window_id = info.get("windowId")
+        if window_id is not None:
+            page.run_cdp("Browser.setWindowBounds", windowId=window_id,
+                         bounds={"left": left, "top": top, "windowState": "normal"})
+            moved = True
+    except Exception:
+        pass
+    if not moved:
+        try:
+            page.set.window.normal()
+            page.set.window.location(left, top)
+            moved = True
+        except Exception:
+            pass
+    # 再尝试把窗口取消隐藏、移到屏幕内并提到前台
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            pid = getattr(getattr(page, "browser", None), "process_id", None)
+            windows = _browser_windows(pid, main_only=True) if pid else []
+            if not windows:
+                windows = _windows_by_title(title_hint or (page.title or ""))
+            for hwnd in windows:
+                user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                user32.MoveWindow(hwnd, left, top, 1100, 800, True)
+                user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
+    return moved
+
+
 def _launch_dpage(platform_key, hidden=False):
     """启动 DrissionPage 浏览器（持久化 profile + 空闲调试端口），失败给出说明。
 
@@ -593,14 +662,11 @@ def dpage_open(platform_key):
         return False, str(exc)
     if page is None:
         return False, "浏览器启动失败，请重试"
-    # 第②步要扫码：如果这个浏览器是检索时“屏幕外/隐藏启动”的，先显示并拉回屏幕
-    if platform_key in _HIDDEN_LAUNCH:
+    # 第②步要扫码：窗口可能是检索时“屏幕外/隐藏启动”的（应用重启后标记会丢），
+    # 因此不依赖 _HIDDEN_LAUNCH，直接把窗口恢复成可见并拉回屏幕。
+    if not config.HEADLESS:
         _set_browser_visible(page, True)
-        try:
-            page.set.window.normal()
-            page.set.window.location(120, 80)
-        except Exception:
-            pass
+        _show_page_window(page, title_hint=p.get("name", ""))
         _HIDDEN_LAUNCH.discard(platform_key)
     try:
         page.get(p["login_url"])
@@ -652,13 +718,8 @@ def dpage_search(platform_key, keyword, city="", pages=1):
     p = platforms.get(platform_key)
     if not p:
         return []
-    if not p.get("api_field_map"):
-        from crawler import search_platform
-        got = search_platform(platform_key, keyword, pages=pages, city=city)
-        if not got:
-            _LAST_SEARCH_ERROR[platform_key] = ("HTML 解析未取到岗位：页面可能需要登录/验证码，"
-                                                "或平台选择器已过期")
-        return got
+    # 猎聘/51job 是前端渲染，接口里也拿不到明文岗位：直接用浏览器渲染后的 DOM 解析
+    prefer_dom = bool(p.get("dom_parse")) or not p.get("api_field_map")
     # 城市名 -> 平台城市码
     search_city = platforms.city_code(platform_key, city) if city else \
         (platforms.city_code(platform_key, "北京") if platform_key == "boss" else "")
@@ -711,6 +772,23 @@ def dpage_search(platform_key, keyword, city="", pages=1):
                 page.wait(1)
             except Exception:
                 break
+        if prefer_dom:
+            from crawler import jobs_from_zhilian_state, parse_job_cards
+            jobs = []
+            if platform_key == "zhilian":
+                try:
+                    state = page.run_js("return window.__INITIAL_STATE__ || null;")
+                except Exception:
+                    state = None
+                jobs = jobs_from_zhilian_state(state)
+                debug.append("页面状态解析岗位数: %d" % len(jobs))
+            if not jobs:
+                jobs = parse_job_cards(page.html, platform_key, page.url)
+                debug.append("DOM 解析岗位数: %d" % len(jobs))
+            if not jobs:
+                reason = ("页面未解析到岗位：可能被验证码/登录墙拦截，"
+                          "或平台页面结构已变化")
+            return jobs
         # 收集 joblist 接口响应（每页一个包；count==1 时 wait 返回单个 DataPacket，归一为列表）
         want = max(1, int(pages))
         packets = page.listen.wait(count=want, timeout=5 + want * 3, fit_count=False)

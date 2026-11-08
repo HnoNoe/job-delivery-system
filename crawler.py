@@ -10,6 +10,7 @@
 生产环境须遵守 robots.txt 与平台服务条款，并优先使用平台官方 API / 合法数据源。
 本模块提供通用 HTML 采集能力 + 可插拔数据源适配器。
 """
+import json
 import re
 import time
 from urllib.parse import urljoin, unquote, urlparse
@@ -227,6 +228,101 @@ def search_platform(platform_key, keyword, pages=1, city=""):
             time.sleep(0.5)
     finally:
         driver.quit()
+    return jobs
+
+
+def _post_job51(raw, el):
+    """51job：职位信息区一行里混着「薪资 城市 刷新时间」，岗位链接要由 jobId 拼。"""
+    info = el.select_one(".joblist-item-jobinfo")
+    if info:
+        tokens = info.get_text(" ", strip=True).split()
+        if tokens:
+            raw["薪资"] = tokens[0]
+            # 城市后面常跟「5分钟前回复 / 喜欢聊天 / 简历处理快」等状态词，需跳过
+            noise = ("回复", "处理", "在线", "分钟", "小时", "刚刚", "活跃", "喜欢", "天", "周")
+            for tok in tokens[1:]:
+                if "·" in tok or not any(word in tok for word in noise):
+                    raw["城市"] = tok
+                    break
+    node = el.select_one("[sensorsdata]")
+    jid = ""
+    if node is not None:
+        try:
+            jid = str(json.loads(node.get("sensorsdata") or "{}").get("jobId") or "")
+        except (ValueError, TypeError):
+            jid = ""
+    if jid:
+        raw["岗位链接"] = "https://jobs.51job.com/all/%s.html" % jid
+
+
+def _post_liepin(raw, el):
+    """猎聘：卡片链接带一长串埋点参数，只保留干净详情地址；薪资从卡片文本补出来。"""
+    link = raw.get("岗位链接", "")
+    if link:
+        raw["岗位链接"] = link.split("?")[0]
+    if not raw.get("薪资"):
+        m = re.search(r"\d+(?:\.\d+)?-\d+(?:\.\d+)?[kK万](?:·\d+薪)?", el.get_text(" ", strip=True))
+        if m:
+            raw["薪资"] = m.group(0)
+
+
+_POST_PARSE = {"job51": _post_job51, "liepin": _post_liepin}
+
+
+def jobs_from_zhilian_state(state):
+    """智联新版搜索页把岗位列表放在 window.__INITIAL_STATE__.positionList 里。
+
+    直接读页面状态比解析 DOM 更稳，也能拿到岗位详情链接（positionUrl）。
+    """
+    jobs, seen = [], set()
+    for item in (state or {}).get("positionList", []) or []:
+        if not isinstance(item, dict):
+            continue
+        link = item.get("positionUrl") or item.get("positionURL") or ""
+        city = " ".join(x for x in (item.get("workCity"), item.get("cityDistrict")) if x)
+        raw = {
+            "岗位名称": item.get("name") or "",
+            "单位名称": item.get("companyName") or "",
+            "城市": city,
+            "薪资": item.get("salary60") or item.get("salaryReal") or "",
+            "学历": item.get("education") or "",
+            "经验": item.get("workingExp") or "",
+            "行业": item.get("industryName") or "",
+            "岗位链接": link,
+        }
+        key = link or raw["岗位名称"]
+        if key and key in seen:
+            continue
+        seen.add(key)
+        jobs.append(normalize_fields(raw))
+    return jobs
+
+
+def parse_job_cards(html, platform_key, base_url=""):
+    """解析浏览器渲染后的岗位卡片（猎聘/51job 这类前端渲染平台）。"""
+    import platforms as plat
+
+    p = plat.get(platform_key)
+    if not p:
+        return []
+    soup = BeautifulSoup(html, "html.parser")
+    jobs = []
+    for el in soup.select(p.get("item_selector", "li")):
+        raw = {}
+        for field, sel in p.get("fields", {}).items():
+            node = el.select_one(sel)
+            if node is None:
+                continue
+            if field in ("岗位链接", "投递入口地址") and node.get("href"):
+                raw[field] = _abs_url(node["href"], base_url)
+            else:
+                raw[field] = node.get_text(" ", strip=True)
+        post = _POST_PARSE.get(platform_key)
+        if post:
+            post(raw, el)
+        raw.setdefault("投递入口类型", "")
+        raw["投递入口类型"] = _classify_entry(raw.get("投递入口地址", ""), raw.get("投递入口类型", ""))
+        jobs.append(normalize_fields(raw))
     return jobs
 
 def collect_from_sources(sources) -> list:
