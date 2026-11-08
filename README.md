@@ -9,6 +9,16 @@
 登录 → 检索 → 画像 → 匹配 → 建任务 → 生成简历 → 投递（手动确认）→ 反馈 → 权重修正 → 再画像
 ```
 
+## 界面预览
+
+| | |
+|:---:|:---:|
+| **Web Dashboard 主页**<br/>![主页](preview_landing.png) | **岗位推荐卡片**<br/>![推荐卡片](preview_cards.png) |
+| **匹配分析与图表**<br/>![图表](preview_charts.png) | **平台登录态自动检测**<br/>![登录态检测](docs/login-status.png) |
+| **Mock 站检索演示**<br/>![Mock 检索](preview_mock_search.png) | **Mock 岗位详情**<br/>![Mock 详情](preview_mock_detail.png) |
+
+> 以上界面均可离线复现：`python mock_e2e.py` 跑通全链路，`streamlit run app.py` 打开 Dashboard。
+
 ## ⚠️ 安全模式（重要）
 
 系统**默认开启安全模式**（`config.SAFE_MODE = True`）：
