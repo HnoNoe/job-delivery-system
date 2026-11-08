@@ -534,8 +534,11 @@ class RegressionTests(unittest.TestCase):
 
     def test_new_platform_city_codes(self):
         self.assertEqual(platforms.city_code("zhilian", "北京"), "530")
+        self.assertEqual(platforms.city_code("zhilian", "杭州"), "653")
         self.assertEqual(platforms.city_code("liepin", "上海"), "020")
+        self.assertEqual(platforms.city_code("liepin", "郑州"), "150020")
         self.assertEqual(platforms.city_code("job51", "广州"), "030200")
+        self.assertEqual(platforms.city_code("job51", "长沙"), "190200")
         with self.assertRaises(ValueError):
             platforms.city_code("zhilian", "不存在的城市")
 
