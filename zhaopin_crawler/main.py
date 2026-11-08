@@ -24,7 +24,6 @@ from classifier import enrich
 from config import (CITY_CODES, DEFAULT_CITIES, DEFAULT_KEYWORDS, OUTPUT_CSV,
                     OUTPUT_XLSX, RAW_JSON, Settings)
 from parser import dedupe_key, is_meaningful, parse_position
-from scraper import ZhaopinScraper
 from utils import fix_console_encoding, get_logger
 
 ROOT = Path(__file__).resolve().parent
@@ -136,6 +135,7 @@ def main(argv=None) -> int:
         # ---------------- 正式采集 ----------------
         log.info(settings.summary())
         log.info("提示：智联的检索页不需要登录，工具会打开浏览器逐个组合抓取。")
+        from scraper import ZhaopinScraper
         scraper = ZhaopinScraper(settings, ROOT, log)
         try:
             raw_records, meta = scraper.run()
@@ -181,9 +181,9 @@ def main(argv=None) -> int:
 
     if args.open:
         try:
-            import os
+            from utils import open_path
             target = excel_path if excel_path.exists() else excel_path.parent
-            os.startfile(str(target))  # noqa: S606
+            open_path(target)
         except Exception:
             pass
 

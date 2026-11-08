@@ -9,6 +9,9 @@ import time
 from pathlib import Path
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
+from test_support import isolate_test_environment
+isolate_test_environment()
+
 import config
 import db
 import session
@@ -18,14 +21,13 @@ import delivery
 import feedback
 import mock_site
 
-# ---------- 准备：启动 mock 站 + 造登录态 + 清库 ----------
+# ---------- 准备：启动 mock 站 + 造登录态（测试使用独立临时库，不需要清真实库） ----------
 if mock_site.GREETS_FILE.exists():
     mock_site.GREETS_FILE.unlink()
-# 清库重跑：deliver_batch() 会捞全库未投递任务，残留的旧任务会让本测试误失败
-_db_path = Path(config.DB_PATH)
-if _db_path.exists():
-    _db_path.unlink()
-srv = mock_site.start_in_background()
+srv = mock_site.start_in_background(port=0)
+import platforms
+for key in ("login_url", "search_url", "api_url"):
+    platforms.PLATFORMS["mock"][key] = platforms.PLATFORMS["mock"][key].replace(":5001/", ":%d/" % srv.server_address[1])
 time.sleep(0.5)
 session.save_cookies("mock", [{"name": "mock_login", "value": "1"}])
 db.init_db()
@@ -62,10 +64,11 @@ assert r["ok"] and r["task_count"] > 0, "全流程失败"
 
 # ---------- ③ 投递（关闭安全模式，走 API 投递到 mock 站） ----------
 config.SAFE_MODE = False
-sc = Path(config.BASE_DIR) / "data" / "send_count.txt"
+sc = config.DATA_DIR / "send_count.txt"
 if sc.exists():
     sc.unlink()
-batch = delivery.deliver_batch(task_ids=[x["task_id"] for x in r["target_jobs"]])
+config.DELIVER_INTERVAL = 0
+batch = delivery.deliver_batch(task_ids=[j["task_id"] for j in r["target_jobs"]])
 print("③ 投递 OK：成功 %d / 失败 %d（%s）" % (
     batch["成功数"], batch["失败数"], batch["停止原因"] or "无停止"))
 assert batch["成功数"] > 0, "投递失败：" + str(batch)

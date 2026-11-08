@@ -11,7 +11,10 @@ import json
 import sys
 
 
-def main():
+def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     p = argparse.ArgumentParser(prog="jobdelivery", description="求职批量投递系统")
     sub = p.add_subparsers(dest="cmd")
 
@@ -27,25 +30,37 @@ def main():
     bt = sub.add_parser("batch", help="批量投递待投递任务（Boss直聘）")
     bt.add_argument("--limit", type=int, default=None, help="最多投递条数（默认走单次批次上限）")
 
-    args = p.parse_args()
+    args = p.parse_args(argv)
 
     if args.cmd == "web":
-        import subprocess
-        subprocess.run([sys.executable, "-m", "streamlit", "run", "app.py"])
+        import start
+        return start.main(["--foreground"])
     elif args.cmd == "login":
         import session
         ok, msg = session.dpage_open(args.platform)
         print(msg)
-        input("登录完成后按回车保存会话 ...")
-        ok, msg = session.dpage_finish(args.platform)
-        print(msg)
-        session.dpage_quit(args.platform)
+        if not ok:
+            return 1
+        try:
+            input("登录完成后按回车保存会话 ...")
+            ok, msg = session.dpage_finish(args.platform)
+            print(msg)
+            return 0 if ok else 1
+        finally:
+            session.dpage_quit(args.platform)
     elif args.cmd == "search":
         import session
-        jobs = session.dpage_search(args.platform, args.keyword)
-        print(json.dumps(jobs, ensure_ascii=False, indent=2))
-        session.dpage_quit(args.platform)
+        try:
+            jobs = session.dpage_search(args.platform, args.keyword)
+            print(json.dumps(jobs, ensure_ascii=False, indent=2))
+        except (RuntimeError, ValueError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        finally:
+            session.dpage_quit(args.platform)
     elif args.cmd == "batch":
+        import db
+        db.init_db()
         import config
         import delivery
         result = delivery.deliver_batch(limit=args.limit)
@@ -56,8 +71,8 @@ def main():
             print("[%s] 任务%d: %s" % ("OK" if ok else "失败", tid, msg))
     else:
         p.print_help()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
-
+    raise SystemExit(main())

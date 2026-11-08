@@ -6,12 +6,22 @@ utils.py —— 公共工具
 """
 
 import logging
+import os
+import subprocess
 import random
 import re
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+
+def open_path(path):
+    if sys.platform == "win32":
+        os.startfile(str(path))
+    else:
+        subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(path)],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 # ---------------------------------------------------------------------------

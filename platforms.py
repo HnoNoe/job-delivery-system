@@ -63,7 +63,7 @@ PLATFORMS = {
         },
         "login_check": {"type": "url_not_contains", "value": "web/user"},
         "headless_ok": False,
-        "api_url": "https://www.zhipin.com/wapi/zpgeek/search/joblist.json?query={keyword}&city=101010100&page={page}&pageSize=30",
+        "api_url": "https://www.zhipin.com/wapi/zpgeek/search/joblist.json?query={keyword}&city={city}&page={page}&pageSize=30",
         "api_listen_kw": "joblist.json",
         "api_jobs_path": "zpData.jobList",
         "api_field_map": {
@@ -175,6 +175,21 @@ def get(platform_key):
     return PLATFORMS.get(platform_key)
 
 
+# 登录态联网检测：带保存的 cookie 访问"需要登录"的页面，看是否被跳回登录页。
+# 只用于判断登录是否有效，不抓取数据、不改动账号。
+AUTH_PROBES = {
+    "boss": {"url": "https://www.zhipin.com/web/chat/index"},
+    "zhilian": {"url": "https://i.zhaopin.com/"},
+    "lagou": {"url": "https://www.lagou.com/wn/resume/myresume"},
+    "liepin": {"url": "https://c.liepin.com/"},
+    "job51": {"url": "https://i.51job.com/"},
+}
+
+for _key, _probe in AUTH_PROBES.items():
+    if _key in PLATFORMS:
+        PLATFORMS[_key]["auth_probe"] = _probe
+
+
 def names():
     return [(k, v["name"]) for k, v in PLATFORMS.items()]
 
@@ -203,9 +218,39 @@ BOSS_CITY_CODES = {
 def city_code(platform_key, city_name):
     """把意向城市名映射为平台的检索城市码。Boss直聘有专门码表，其它平台暂用城市名。"""
     if platform_key == "boss":
-        return BOSS_CITY_CODES.get(city_name, "101010100")  # 默认北京
+        city_name = str(city_name or "").strip().removesuffix("市")
+        if city_name.isdigit():
+            return city_name
+        if not city_name:
+            return "100010000"
+        if city_name not in BOSS_CITY_CODES:
+            raise ValueError("暂未配置 Boss 城市编码：%s，请在 platforms.py 补充" % city_name)
+        return BOSS_CITY_CODES[city_name]
     return city_name or ""
 
 
 def cookie_domain(platform_key):
     return COOKIE_DOMAINS.get(platform_key, "")
+
+
+def search_url(platform_key, keyword, city="", page=1, api=False):
+    from urllib.parse import quote
+    p = get(platform_key)
+    if not p:
+        raise ValueError("未知平台：%s" % platform_key)
+    return p["api_url" if api else "search_url"].format(
+        keyword=quote(str(keyword), safe=""),
+        city=quote(str(city_code(platform_key, city)), safe=""), page=int(page))
+
+
+def job_url(platform_key, value):
+    from urllib.parse import urljoin, quote
+    link = str(value or "")
+    if not link:
+        return ""
+    if link.startswith(("http://", "https://", "//", "/")):
+        return urljoin(get(platform_key)["login_url"], link)
+    templates = {"boss": "https://www.zhipin.com/job_detail/%s.html",
+                 "lagou": "https://www.lagou.com/jobs/%s.html",
+                 "job51": "https://jobs.51job.com/all/%s.html"}
+    return templates[platform_key] % quote(link, safe="") if platform_key in templates else link

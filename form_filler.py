@@ -95,8 +95,8 @@ def fill_form(driver, data, resume_path=None):
         value = data.get(field)
         if value is None or value == "":
             continue
-        _set_value(c, value)
-        filled.append(field)
+        if _set_value(c, value):
+            filled.append(field)
 
     # 简历附件上传
     if resume_path:
@@ -105,30 +105,44 @@ def fill_form(driver, data, resume_path=None):
             fi.send_keys(str(resume_path))
 
     # 提交
+    invalid = driver.find_elements(By.CSS_SELECTOR, ":invalid")
+    if invalid:
+        raise RuntimeError("表单校验未通过，存在无效或未填写的必填字段")
     submitted = _submit(driver)
-    return ("Web 表单已提交，识别并填写字段：%s" % ("、".join(filled) if filled else "无")), filled
+    if not submitted:
+        raise RuntimeError("未找到或未能点击提交按钮，表单尚未提交")
+    body = driver.find_element(By.TAG_NAME, "body").text or ""
+    if not re.search(r"提交成功|投递成功|申请成功|发送成功|感谢.{0,10}申请|application (?:submitted|received)|successfully submitted", body, re.I):
+        raise SubmissionUncertain("已点击提交，但页面未确认投递成功，请人工核对")
+    return ("Web 表单已确认提交成功，填写字段：%s" % ("、".join(filled) if filled else "无")), filled
+
+
+class SubmissionUncertain(RuntimeError):
+    pass
 
 
 def _set_value(c, value):
     el = c["element"]
     tag, typ = c["tag"], c["type"]
     if tag == "select":
-        _select_option(el, value)
+        return _select_option(el, value)
     elif typ in ("radio", "checkbox"):
         val = (el.get_attribute("value") or "").strip()
         if typ == "radio" and val and str(value) not in val:
-            return  # 值不匹配的单选框不选（如性别选“男”则跳过“女”）
+            return False
         try:
             if not el.is_selected():
                 el.click()
+            return True
         except Exception:
-            pass
+            return False
     else:
         try:
             el.clear()
             el.send_keys(str(value))
+            return True
         except Exception:
-            pass
+            return False
 
 
 def _select_option(sel, value):
@@ -137,7 +151,7 @@ def _select_option(sel, value):
     try:
         s = Select(sel)
         s.select_by_visible_text(str(value))
-        return
+        return True
     except Exception:
         pass
     try:
@@ -145,9 +159,10 @@ def _select_option(sel, value):
             txt = (o.text or "").strip()
             if txt and txt in str(value):
                 o.click()
-                return
+                return True
     except Exception:
         pass
+    return False
 
 
 def _submit(driver):

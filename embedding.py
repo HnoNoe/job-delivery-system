@@ -7,13 +7,21 @@ import numpy as np
 import config
 
 _model = None
+_failed_model = None
 
 
 def _get_model():
-    global _model
-    if _model is None and config.EMBED_MODEL:
-        from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer(config.EMBED_MODEL)
+    global _model, _failed_model
+    if not config.EMBED_MODEL:
+        return None
+    if _model is None and config.EMBED_MODEL != _failed_model:
+        try:
+            from sentence_transformers import SentenceTransformer
+            _model = SentenceTransformer(config.EMBED_MODEL)
+        except (ImportError, OSError) as exc:
+            import warnings
+            warnings.warn("嵌入模型不可用，改用离线哈希：%s" % exc, RuntimeWarning)
+            _failed_model = config.EMBED_MODEL
     return _model
 
 

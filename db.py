@@ -9,10 +9,20 @@ from pathlib import Path
 import config
 
 
+class Connection(sqlite3.Connection):
+    """Commit/rollback and close on leaving a with block."""
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
+
+
 def get_conn():
     Path(config.DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(config.DB_PATH)
+    conn = sqlite3.connect(config.DB_PATH, timeout=30, factory=Connection)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 
@@ -46,6 +56,19 @@ def init_db():
         job_id INTEGER PRIMARY KEY AUTOINCREMENT,
         fields TEXT NOT NULL,         -- 岗位字段 JSON
         embedding TEXT                -- 岗位向量 JSON
+    );
+    CREATE TABLE IF NOT EXISTS user_jobs (
+        user_id INTEGER NOT NULL,
+        job_id INTEGER NOT NULL,
+        PRIMARY KEY (user_id, job_id)
+    );
+    CREATE TABLE IF NOT EXISTS user_job_scopes (
+        user_id INTEGER PRIMARY KEY
+    );
+    CREATE TABLE IF NOT EXISTS delivery_attempts (
+        task_id INTEGER PRIMARY KEY,
+        day TEXT NOT NULL,
+        state TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS target_jobs (
         job_id INTEGER PRIMARY KEY,
@@ -95,6 +118,24 @@ def init_db():
         ts TEXT DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    conn.execute("BEGIN IMMEDIATE")
+    # Additive migrations: keep databases and historical tasks from older copies.
+    for table, column, definition in (
+        ("jobs", "active", "INTEGER NOT NULL DEFAULT 1"),
+        ("delivery_tasks", "match_score", "REAL"),
+        ("history_samples", "task_id", "INTEGER"),
+    ):
+        columns = {r[1] for r in conn.execute("PRAGMA table_info(%s)" % table)}
+        if column not in columns:
+            conn.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, definition))
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS history_task_unique ON history_samples(task_id) WHERE task_id IS NOT NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS tasks_user ON delivery_tasks(user_id)")
+    conn.execute("INSERT OR IGNORE INTO user_jobs (user_id, job_id) SELECT DISTINCT d.user_id, d.job_id "
+                 "FROM delivery_tasks d JOIN jobs j ON j.job_id=d.job_id "
+                 "WHERE d.user_id NOT IN (SELECT user_id FROM user_job_scopes)")
+    conn.execute("INSERT OR IGNORE INTO user_job_scopes SELECT DISTINCT user_id FROM delivery_tasks")
+    conn.execute("UPDATE delivery_tasks SET match_score=(SELECT score FROM target_jobs t WHERE t.job_id=delivery_tasks.job_id) "
+                 "WHERE match_score IS NULL")
     conn.commit()
     conn.close()
 

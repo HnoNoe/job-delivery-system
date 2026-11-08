@@ -58,30 +58,31 @@ def run(args):
 
 def do_check():
     print(">>> 环境自检\n")
-    run(["check_env.py"])
+    return run(["check_env.py"])
 
 
 def do_crawl():
     print(">>> 开始抓取")
     print("提示：会弹出一个浏览器窗口自动翻页抓取，抓完自动生成 Excel。不需要登录。\n")
-    run(["main.py", "--open"])
+    return run(["main.py", "--open"])
 
 
 def do_demo():
     print(">>> 演示模式：不访问网站，用示例数据跑通【分类 -> 统计 -> 导出 Excel】\n")
-    run(["main.py", "--demo", "--open"])
+    return run(["main.py", "--demo", "--open"])
 
 
 def do_deps():
     print(">>> 安装依赖（pip install -r requirements.txt）\n")
-    run(["-m", "pip", "install", "-r", "requirements.txt"])
+    return run(["-m", "pip", "install", "-r", "requirements.txt"])
 
 
 def do_open():
     out = ROOT / "output"
     if out.exists():
         try:
-            os.startfile(str(out))  # noqa: S606
+            from utils import open_path
+            open_path(out)
         except Exception as e:  # noqa: BLE001
             print(f"打开文件夹失败：{e}")
     else:
@@ -104,8 +105,7 @@ def main():
     if len(sys.argv) > 1:
         fn = SHORTCUTS.get(sys.argv[1].lower())
         if fn:
-            fn()
-            return 0
+            return int(fn() or 0)
         print(f"未知参数：{sys.argv[1]}")
         return 1
 

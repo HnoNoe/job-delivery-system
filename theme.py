@@ -11,6 +11,7 @@
 import plotly.graph_objects as go
 import plotly.io as pio
 import streamlit as st
+from html import escape
 
 # ---------------------------------------------------------------- 色彩令牌
 INK = "#0F172A"          # 主文字
@@ -42,6 +43,10 @@ EVOLUTION = {"反馈前": MUTED, "反馈后": PRIMARY}
 
 FONT_STACK = ('"PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", '
               '"Source Han Sans SC", system-ui, sans-serif')
+
+# 按钮专用字体：优先黑体（Windows SimHei / 黑体，macOS Heiti SC），加粗后按钮文字更清晰
+BUTTON_FONT = ('"SimHei", "黑体", "Heiti SC", "Microsoft YaHei", "PingFang SC", '
+               '"Noto Sans CJK SC", system-ui, sans-serif')
 
 GRADIENT = f"linear-gradient(120deg, {PRIMARY} 0%, {VIOLET} 55%, {PURPLE} 100%)"
 
@@ -176,6 +181,31 @@ def empty_state(icon, title, desc=""):
     )
 
 
+def jobs_table(jobs, limit=300):
+    """检索结果表格（HTML）：岗位名称是真实链接，点击在新标签页打开原始岗位页。"""
+    cols = ["岗位名称", "单位名称", "城市", "薪资", "学历", "经验", "行业"]
+    rows = []
+    for job in (jobs or [])[:limit]:
+        name = str(job.get("岗位名称", "") or "")
+        link = str(job.get("岗位链接", "") or "")
+        if link.lower().startswith(("http://", "https://")):
+            first = (f'<a href="{escape(link, quote=True)}" target="_blank" '
+                     f'rel="noopener noreferrer">{escape(name)}</a>')
+        else:
+            first = escape(name)
+        rest = "".join(
+            f"<td>{escape(str(job.get(c, '') or '—'))}</td>" for c in cols[1:])
+        rows.append(f"<tr><td>{first}</td>{rest}</tr>")
+    head = "".join(f"<th>{escape(c)}</th>" for c in cols)
+    total = len(jobs or [])
+    more = f"（仅显示前 {limit} 条）" if total > limit else ""
+    return (
+        '<div class="jtable-wrap"><table class="jtable">'
+        f"<thead><tr>{head}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
+        f'<div class="jtable-cap">共 {total} 个岗位 · 点击岗位名称可在新标签页打开原始页面{more}</div>'
+    )
+
+
 def job_card_header(job):
     """岗位卡片头：等级徽章 + 岗位/单位 + 薪资与等级分 + 匹配分进度条。"""
     grade = job.get("等级", "")
@@ -190,10 +220,10 @@ def job_card_header(job):
         f'<div class="jcard-top">'
         f'<span class="jgrade" style="color:{color};background:{color}1A;'
         f'border:1px solid {color}55">{grade} 级</span>'
-        f'<span class="jtitle">{job.get("岗位名称", "")}</span>'
-        f'<span class="junit">{job.get("单位名称", "")}</span>'
+        f'<span class="jtitle">{escape(str(job.get("岗位名称", "")))}</span>'
+        f'<span class="junit">{escape(str(job.get("单位名称", "")))}</span>'
         f'</div>'
-        f'<div class="jmeta">💰 {job.get("薪资", "—")} · '
+        f'<div class="jmeta">💰 {escape(str(job.get("薪资", "—")))} · '
         f'等级分 {job.get("等级分", "—")}/100 · 匹配分 {p:.3f}</div>'
         f'<div class="jbar"><div class="jbar-fill" '
         f'style="width:{pct}%;background:{color}"></div></div>'
@@ -256,10 +286,33 @@ hr {{ border: none; border-top: 1px solid {LINE}; margin: 1.6rem 0 .6rem; }}
 .pill-ok   {{ color: #047857; background: #D1FAE5; }}
 .pill-off  {{ color: {SLATE};  background: #E2E8F0; }}
 .pill-warn {{ color: #B45309; background: #FEF3C7; }}
+.pill-bad  {{ color: #B91C1C; background: #FEE2E2; }}
+
+/* ===== 检索结果表格（岗位名称可点击） ===== */
+.jtable-wrap {{
+  overflow-x: auto; border: 1px solid {LINE}; border-radius: 12px;
+  background: {CARD}; box-shadow: 0 1px 3px rgba(15, 23, 42, .05);
+}}
+.jtable {{ width: 100%; border-collapse: collapse; font-size: .9rem; }}
+.jtable th {{
+  text-align: left; white-space: nowrap;
+  padding: .6rem .85rem; background: #F1F5F9; color: {INK}; font-weight: 700;
+  border-bottom: 1px solid {LINE};
+}}
+.jtable td {{
+  padding: .55rem .85rem; color: {SLATE}; vertical-align: top;
+  border-bottom: 1px solid #EEF2F7;
+}}
+.jtable tbody tr:last-child td {{ border-bottom: none; }}
+.jtable tbody tr:hover td {{ background: #F8FAFF; }}
+.jtable a {{ color: {PRIMARY}; font-weight: 700; text-decoration: none; }}
+.jtable a:hover {{ text-decoration: underline; }}
+.jtable-cap {{ margin-top: .45rem; color: {MUTED}; font-size: .78rem; }}
 
 /* ===== 按钮 ===== */
 .stButton > button {{
-  border-radius: 10px; font-weight: 600; border: 1px solid {LINE};
+  border-radius: 10px; font-weight: 700; font-family: {BUTTON_FONT};
+  font-size: .95rem; letter-spacing: .01em; border: 1px solid {LINE};
   transition: transform .08s ease, box-shadow .15s ease;
 }}
 .stButton > button:hover {{
@@ -267,10 +320,22 @@ hr {{ border: none; border-top: 1px solid {LINE}; margin: 1.6rem 0 .6rem; }}
   box-shadow: 0 6px 16px -8px rgba(15, 23, 42, .35);
 }}
 .stButton > button[kind="primary"] {{
-  background: {GRADIENT}; border: none;
+  background: {GRADIENT}; border: none; color: #FFFFFF;
+  -webkit-text-fill-color: #FFFFFF;
+  text-shadow: 0 1px 2px rgba(15, 23, 42, .28);
   box-shadow: 0 8px 20px -8px rgba(79, 70, 229, .6);
 }}
-.stButton > button:disabled {{ opacity: .45; transform: none; box-shadow: none; }}
+/* 禁用/运行中：原来 opacity:.45 + 半透明白字，文字几乎看不见。
+   改为浅紫实底 + 近黑黑体字，不降透明度，保持可读。 */
+.stButton > button:disabled {{
+  opacity: 1 !important; transform: none; box-shadow: none;
+  background: #EDE9FE !important; border: 1px solid #C7C2F5 !important;
+  color: {INK} !important; -webkit-text-fill-color: {INK} !important;
+  text-shadow: none;
+}}
+.stButton > button[kind="primary"]:disabled {{
+  background: #EDE9FE !important; color: {INK} !important;
+}}
 
 /* ===== 输入控件 ===== */
 .stTextInput input, .stNumberInput input, .stTextArea textarea {{

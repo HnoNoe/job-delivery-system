@@ -19,10 +19,11 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
+import config
 
 BASE_DIR = Path(__file__).resolve().parent
 PORT = 5001
-GREETS_FILE = BASE_DIR / "data" / "mock_greets.jsonl"
+GREETS_FILE = config.DATA_DIR / "mock_greets.jsonl"
 
 
 # ---------- 内置岗位数据（字段名对齐真实 Boss 的 api_field_map） ----------
@@ -189,9 +190,14 @@ class MockHandler(BaseHTTPRequestHandler):
         size = int(q.get("pageSize", ["30"])[0] or 30)
         jobs = list(JOBS)
         if keyword:
-            kw = keyword.lower()
-            jobs = [j for j in jobs
-                    if kw in j["jobName"].lower() or any(kw in s.lower() for s in j["skills"])]
+            # 真实检索把空格分隔的多词当「任一命中」（相关度排序）；这里同样按词拆开，
+            # 否则默认关键词「Python 后端」这类带空格的查询在 Mock 站会返回 0 条，流程走不下去。
+            tokens = [t for t in re.split(r"[\s,，]+", keyword.lower()) if t]
+            def _hit(j):
+                haystack = " ".join([j["jobName"], j.get("brandIndustry", ""),
+                                     " ".join(j.get("skills", []))] + list(j.get("jobLabels", []))).lower()
+                return any(t in haystack for t in tokens)
+            jobs = [j for j in jobs if _hit(j)]
         # Boss 用城市码（101010100 之类）则忽略过滤；城市名则精确匹配
         if city and not city.isdigit():
             jobs = [j for j in jobs if city in j["cityName"]]
@@ -240,7 +246,7 @@ class MockHandler(BaseHTTPRequestHandler):
             "<h1>Mock Boss 登录</h1>"
             "<img class='qrcode-img' src='data:image/gif;base64,R0lGODlhAQABAAAAACw='>"
             "<p>扫码登录（测试站：点按钮即登录）</p>"
-            "<button onclick=\"location.href='/web/geek/job?query=后端&city=北京&page=1'\">模拟登录成功</button>"
+            "<button onclick=\"document.cookie='mock_login=1; path=/'; location.href='/web/geek/job?query=后端&city=北京&page=1'\">模拟登录成功</button>"
             "</body></html>")
         return self._html(html)
 
@@ -294,8 +300,10 @@ def start_server(port=PORT):
 
 def start_in_background(port=PORT):
     """以守护线程启动 mock 站，返回 server 句柄（供测试脚本内嵌使用）。"""
-    global _server
+    global _server, PORT, JOBS
     _server = HTTPServer(("127.0.0.1", port), MockHandler)
+    PORT = _server.server_address[1]
+    JOBS = _build_jobs()
     t = threading.Thread(target=_server.serve_forever, daemon=True)
     t.start()
     return _server
@@ -305,12 +313,9 @@ def stop_server():
     global _server
     if _server:
         _server.shutdown()
+        _server.server_close()
         _server = None
 
 
 if __name__ == "__main__":
     start_server()
-
-
-
-

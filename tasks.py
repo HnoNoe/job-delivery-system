@@ -8,21 +8,19 @@ import db
 
 def create_tasks(user_id, target_jobs):
     """目标岗位 → 投递任务表。返回任务编号列表。"""
-    conn = db.get_conn()
-    task_ids = []
-    for i, x in enumerate(target_jobs):
-        job = x["job"]
-        cur = conn.execute(
-            "INSERT INTO delivery_tasks (job_id, user_id, job_name, unit_name, job_link,"
-            " entry_type, entry_addr, status) VALUES (?,?,?,?,?,?,?,?)",
-            (x["job_id"], user_id, job.get("岗位名称"), job.get("单位名称"),
-             job.get("岗位链接"), job.get("投递入口类型"), job.get("投递入口地址"),
-             "待生成"),
-        )
-        task_ids.append(cur.lastrowid)
-    conn.commit()
-    conn.close()
-    return task_ids
+    with db.get_conn() as conn:
+        task_ids = []
+        for i, x in enumerate(target_jobs):
+            job = x["job"]
+            cur = conn.execute(
+                "INSERT INTO delivery_tasks (job_id, user_id, job_name, unit_name, job_link,"
+                " entry_type, entry_addr, status, match_score) VALUES (?,?,?,?,?,?,?,?,?)",
+                (x["job_id"], user_id, job.get("岗位名称"), job.get("单位名称"),
+                 job.get("岗位链接"), job.get("投递入口类型"), job.get("投递入口地址"),
+                 "待生成", float(x["score"])),
+            )
+            task_ids.append(cur.lastrowid)
+        return task_ids
 
 
 def list_tasks(user_id):

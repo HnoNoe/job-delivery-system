@@ -1,7 +1,7 @@
 """前端渲染兼容性回归测试：消除 Streamlit 弃用报错，且跨版本可用。
 
 Streamlit ≥1.49 弃用 `use_container_width`（2025-12-31 后移除），改用 `width='stretch'`；
-但 requirements.txt 允许 `streamlit>=1.32`，因此 app.py 用 `_full_width_kwargs()` 版本自适应。
+但 requirements.txt 允许 `streamlit>=1.46`，因此 app.py 用 `_full_width_kwargs()` 版本自适应。
 
 本测试离线运行（不联网、不起浏览器）校验四件事：
 1. 静态：app.py（及其它模块）不再出现 `use_container_width=` 关键字实参；
@@ -18,6 +18,9 @@ import sys
 import tempfile
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
+from test_support import isolate_test_environment
+isolate_test_environment()
 
 import pandas as pd
 import streamlit as st
@@ -67,7 +70,7 @@ class _Capture(logging.Handler):
 
 
 def run_app(target, seed_jobs=False):
-    """执行目标脚本，返回 (异常列表, 表格数, 弃用告警条数)。"""
+    """执行目标脚本，返回 (异常列表, 表格数, 弃用告警条数, 检索结果表格数)。"""
     cap = _Capture()
     # Streamlit 的弃用告警由 streamlit.deprecation_util 记录且不向 root 传播，
     # 所以同时挂到该 logger 与 root，避免漏检（假阴性）。
@@ -78,15 +81,18 @@ def run_app(target, seed_jobs=False):
     try:
         at = AppTest.from_file(target)
         if seed_jobs:
-            # 预置第③步检索结果，触发 app.py 中 show_table(...) 的渲染分支
+            # 预置第③步检索结果，触发 app.py 中 theme.jobs_table(...) 的渲染分支
             at.session_state["jobs"] = [
                 {"岗位名称": "Python 后端开发", "单位名称": "示例科技", "城市": "北京",
-                 "薪资": "15-25K", "学历": "本科", "经验": "1-3年", "行业": "互联网"},
+                 "薪资": "15-25K", "学历": "本科", "经验": "1-3年", "行业": "互联网",
+                 "岗位链接": "https://example.com/job/1"},
                 {"岗位名称": "后端工程师", "单位名称": "测试公司", "城市": "北京",
                  "薪资": "18-30K", "学历": "本科", "经验": "3-5年", "行业": "企业服务"},
             ]
         at.run(timeout=90)
-        return ([str(e.value) for e in at.exception], len(at.dataframe), cap.deprecation_hits)
+        html_tables = sum(1 for m in at.markdown if "jtable" in (m.value or ""))
+        return ([str(e.value) for e in at.exception], len(at.dataframe),
+                cap.deprecation_hits, html_tables)
     finally:
         for lg in loggers:
             lg.removeHandler(cap)
@@ -106,20 +112,22 @@ ok &= check("参数语义正确", _kw == ({"width": "stretch"} if tuple(
     int(x) for x in st.__version__.split(".")[:2]) >= (1, 49) else {"use_container_width": True}))
 
 print("=== ③ 动态检查：对照探针 + 真实渲染 ===")
-probe = os.path.join(tempfile.gettempdir(), "_verify_ui_compat_probe.py")
-with open(probe, "w", encoding="utf-8") as f:
+with tempfile.NamedTemporaryFile(mode="w", suffix=".py", prefix="_verify_ui_compat_", encoding="utf-8", delete=False) as f:
+    probe = f.name
     f.write("import pandas as pd\nimport streamlit as st\n"
             "st.dataframe(pd.DataFrame({'a': [1]}), use_container_width=True, hide_index=True)\n")
 try:
-    _exc_p, _df_p, _hits_p = run_app(probe)
-    ok &= check("对照探针可检出弃用告警（hits=%d，表格=%d）" % (_hits_p, _df_p),
-                _hits_p > 0 and _df_p == 1)
+    _exc_p, _df_p, _hits_p, _ = run_app(probe)
+    modern = tuple(int(x) for x in st.__version__.split(".")[:2]) >= (1, 49)
+    ok &= check("对照探针告警符合版本（hits=%d，表格=%d）" % (_hits_p, _df_p),
+                (_hits_p > 0 if modern else _hits_p == 0) and _df_p == 1)
 finally:
     os.remove(probe)
 
-_exc_a, _df_a, _hits_a = run_app(APP_PATH, seed_jobs=True)
+_exc_a, _df_a, _hits_a, _html_a = run_app(APP_PATH, seed_jobs=True)
 ok &= check("app.py 端到端执行无异常（%s）" % (_exc_a or "无异常"), not _exc_a)
-ok &= check("app.py 渲染出表格（表格=%d）" % _df_a, _df_a >= 1)
+ok &= check("app.py 渲染出检索结果表格（HTML=%d，DataFrame=%d）" % (_html_a, _df_a),
+            _html_a >= 1 or _df_a >= 1)
 ok &= check("app.py 零弃用告警（hits=%d）" % _hits_a, _hits_a == 0)
 
 print()
