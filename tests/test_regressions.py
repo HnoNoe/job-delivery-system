@@ -532,5 +532,64 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(at.text_input(key="l0_姓名").value, "手改姓名")
 
 
+    def test_new_platform_city_codes(self):
+        self.assertEqual(platforms.city_code("zhilian", "北京"), "530")
+        self.assertEqual(platforms.city_code("zhilian", "杭州"), "653")
+        self.assertEqual(platforms.city_code("liepin", "上海"), "020")
+        self.assertEqual(platforms.city_code("liepin", "郑州"), "150020")
+        self.assertEqual(platforms.city_code("job51", "广州"), "030200")
+        self.assertEqual(platforms.city_code("job51", "长沙"), "190200")
+        with self.assertRaises(ValueError):
+            platforms.city_code("zhilian", "不存在的城市")
+
+    def test_zhilian_state_jobs_include_links(self):
+        state = {"positionList": [{
+            "name": "后端工程师",
+            "companyName": "示例科技",
+            "workCity": "北京",
+            "cityDistrict": "朝阳",
+            "salary60": "1-2万",
+            "education": "本科",
+            "workingExp": "3-5年",
+            "industryName": "互联网",
+            "positionUrl": "https://www.zhaopin.com/jobdetail/CCL1.htm",
+        }]}
+        jobs = crawler.jobs_from_zhilian_state(state)
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["城市"], "北京 朝阳")
+        self.assertEqual(jobs[0]["薪资"], "1-2万")
+        self.assertIn("jobdetail/CCL1.htm", jobs[0]["岗位链接"])
+
+    def test_rendered_cards_for_job51_and_liepin(self):
+        job51_html = """
+        <div class="joblist-item">
+          <div class="joblist-item-jobname">后端工程师</div>
+          <div class="joblist-item-right"><a class="comp"><span class="cname">示例科技</span></a></div>
+          <div class="joblist-item-jobinfo">1.5-2万 北京·海淀区 5分钟前回复</div>
+          <div sensorsdata='{"jobId":"174153967"}'></div>
+        </div>
+        """
+        jobs = crawler.parse_job_cards(job51_html, "job51", "https://we.51job.com")
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["城市"], "北京·海淀区")
+        self.assertEqual(jobs[0]["薪资"], "1.5-2万")
+        self.assertEqual(jobs[0]["岗位链接"], "https://jobs.51job.com/all/174153967.html")
+
+        liepin_html = """
+        <div class="jobCardPcContainer">
+          <div class="jobTitleBox">
+            <div class="ellipsis-1" title="后端工程师">后端工程师</div>
+            <span class="ellipsis-1">北京-海淀区</span>
+          </div>
+          <span class="companyName">示例科技</span>
+          <a data-nick="job-detail-job-info" href="https://www.liepin.com/job/1.shtml?trace=1">x</a>
+        </div>
+        """
+        jobs = crawler.parse_job_cards(liepin_html, "liepin", "https://www.liepin.com")
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["城市"], "北京-海淀区")
+        self.assertEqual(jobs[0]["岗位链接"], "https://www.liepin.com/job/1.shtml")
+
+
 if __name__ == "__main__":
     unittest.main()

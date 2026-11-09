@@ -130,6 +130,9 @@ _states = _wizard_states()
 
 # ---------------- 顶部 ----------------
 theme.hero()
+_flash = st.session_state.pop("_login_flash", None)
+if _flash:
+    st.success(_flash)
 
 # ---------------- 侧边栏：进度 + 重置 + 状态 ----------------
 with st.sidebar:
@@ -148,6 +151,7 @@ with st.sidebar:
                       "resume_pdf", "resume_text", "parsed_pdf_hash", "rematch", "rematch_old", "prepared_user_data")
                     or k.startswith(("l0_", "l2_", "l3_", "sel_")) or k in ("l1_iw", "l1_proj")):
                 st.session_state.pop(k, None)
+        st.session_state.pop("login_report", None)
         st.rerun()
     st.divider()
     st.caption("平台登录状态（启动 / 刷新页面时自动检测）")
@@ -349,12 +353,23 @@ if selected:
             st.info(f"{platforms.get(k)['name']}：{msg}")
         st.caption("👉 在弹出的浏览器里扫码登录（如出现滑块请手动拖动，登录后回来点右侧）")
     if c2.button("✅ 我已完成登录", key="btn_real_finish"):
+        saved, failed = [], []
         for k in selected:
             ok, msg = session.dpage_finish(k)
             if ok:
-                st.success(f"{platforms.get(k)['name']}：{msg}")
+                saved.append(platforms.get(k)["name"])
             else:
-                st.warning(f"{platforms.get(k)['name']}：{msg}")
+                failed.append("%s：%s" % (platforms.get(k)["name"], msg))
+        if saved:
+            # 登录态刚变化，清掉 5 分钟的检测缓存并重跑，让侧栏/②状态牌立即更新
+            st.session_state.pop("login_report", None)
+            _msg = "、".join(saved) + "：登录成功，状态已刷新"
+            if failed:
+                _msg += "；" + "；".join(failed)
+            st.session_state["_login_flash"] = _msg
+            st.rerun()
+        for _line in failed:
+            st.warning(_line)
 
 logged_in = [k for k in selected if session.is_active(k)]
 if logged_in:

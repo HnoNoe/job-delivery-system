@@ -85,14 +85,16 @@ PLATFORMS = {
         "name": "智联招聘",
         "login_url": "https://passport.zhaopin.com/login",
         "login_qr_selector": "img.qrcode, .qr-code img, canvas",
-        "search_url": "https://sou.zhaopin.com/?jl={city}&kw={keyword}&p={page}",
-        "item_selector": "div.joblist-box__item",
+        # sou.zhaopin.com 会 302 到 www.zhaopin.com/jobs/，新页面结构见下方选择器
+        "search_url": "https://www.zhaopin.com/jobs/?jl={city}&kw={keyword}&p={page}",
+        "item_selector": "div.job-card",
         "fields": {
-            "岗位名称": ".jobinfo__name",
-            "单位名称": ".companyinfo__name",
-            "岗位链接": "a.joblist-box__iteminfo",
-            "城市": ".jobinfo__other-info",
+            "岗位名称": ".job-card__title-main",
+            "单位名称": ".job-card__company-name",
+            "城市": ".job-card__location",
+            "薪资": ".job-card__salary",
         },
+        "dom_parse": True,
         "login_check": {"type": "cookie", "name": "at"},
         "headless_ok": False,
     },
@@ -129,14 +131,17 @@ PLATFORMS = {
         "name": "猎聘",
         "login_url": "https://www.liepin.com/login",
         "login_qr_selector": "img.login-qrcode, .qrcode img, canvas",
-        "search_url": "https://www.liepin.com/zhaopin/?key={keyword}&city={city}&page={page}",
-        "item_selector": "div.job-list-item",
+        # 猎聘的城市参数是 dqs（不是 city），值见 LIE_PIN_CITY_CODES
+        "search_url": "https://www.liepin.com/zhaopin/?key={keyword}&dqs={city}&page={page}",
+        "item_selector": "div.jobCardPcContainer",
         "fields": {
-            "岗位名称": ".job-title-box .ellipsis-1",
-            "单位名称": ".company-name",
-            "岗位链接": "a",
-            "城市": ".job-dq-box",
+            "岗位名称": "div.jobTitleBox div.ellipsis-1",
+            "单位名称": ".companyName",
+            "岗位链接": 'a[data-nick="job-detail-job-info"]',
+            "城市": "div.jobTitleBox span.ellipsis-1",
         },
+        # 搜索结果是前端渲染的，requests 拿不到岗位卡片，必须走浏览器 DOM
+        "dom_parse": True,
         "login_check": {"type": "url_not_contains", "value": "login"},
         "headless_ok": False,
     },
@@ -144,14 +149,17 @@ PLATFORMS = {
         "name": "前程无忧",
         "login_url": "https://login.51job.com/",
         "login_qr_selector": "img.qrcode, .login-qrcode img, canvas",
+        # 51job 的城市参数用 6 位城市码，值见 JOB51_CITY_CODES
         "search_url": "https://we.51job.com/pc/search?jobArea={city}&keyword={keyword}&pageNum={page}",
-        "item_selector": "div.joblist_item",
+        "item_selector": "div.joblist-item",
         "fields": {
-            "岗位名称": ".job_name",
+            "岗位名称": ".joblist-item-jobname",
             "单位名称": ".cname",
-            "岗位链接": "a",
-            "城市": ".job_area",
+            "岗位链接": ".joblist-item-jobname",
+            "城市": ".joblist-item-jobinfo",
         },
+        # 前端渲染 + 岗位链接要由 sensorsdata 的 jobId 拼，不能只靠 CSS 选择器
+        "dom_parse": True,
         "login_check": {"type": "url_not_contains", "value": "login"},
         "headless_ok": False,
         "api_url": "https://we.51job.com/api/job/search-pc?api_key=51job&keyword={keyword}&searchType=2&pageNum={page}&jobArea={city}",
@@ -214,19 +222,57 @@ BOSS_CITY_CODES = {
     "合肥": "101220100", "厦门": "101230200", "福州": "101230100",
 }
 
+# 猎聘检索用 dqs 城市码（已实测：010 北京 / 020 上海 / 050020 广州 / 050090 深圳 / 150020 郑州）
+LIE_PIN_CITY_CODES = {
+    "北京": "010", "上海": "020", "天津": "030", "重庆": "040",
+    "广州": "050020", "深圳": "050090", "苏州": "060080", "南京": "060020",
+    "杭州": "070020", "郑州": "150020", "武汉": "170020", "大连": "210040",
+    "西安": "270020", "成都": "280020",
+}
+
+# 智联招聘检索用 jl 城市码（取自官方筛选接口 hotCity/allCity，已逐城实测）
+ZHILIAN_CITY_CODES = {
+    "北京": "530", "上海": "538", "广州": "763", "深圳": "765",
+    "杭州": "653", "南京": "635", "苏州": "639", "成都": "801",
+    "武汉": "736", "西安": "854", "天津": "531", "重庆": "551",
+    "长沙": "749", "郑州": "719", "青岛": "703", "合肥": "664",
+    "厦门": "682", "福州": "681",
+}
+
+# 前程无忧检索用 6 位城市码（取自官方 dd_city.json，已逐城实测）
+JOB51_CITY_CODES = {
+    "北京": "010000", "上海": "020000", "广州": "030200", "深圳": "040000",
+    "杭州": "080200", "南京": "070200", "苏州": "070300", "成都": "090200",
+    "武汉": "180200", "西安": "200200", "天津": "050000", "重庆": "060000",
+    "长沙": "190200", "郑州": "170200", "青岛": "120300", "合肥": "150200",
+    "厦门": "110300", "福州": "110200",
+}
+
 
 def city_code(platform_key, city_name):
-    """把意向城市名映射为平台的检索城市码。Boss直聘有专门码表，其它平台暂用城市名。"""
+    """把意向城市名映射为平台的检索城市码。未配置的城市会显式报错，避免静默搜错城市。"""
+    name = str(city_name or "").strip().removesuffix("市")
     if platform_key == "boss":
-        city_name = str(city_name or "").strip().removesuffix("市")
-        if city_name.isdigit():
-            return city_name
-        if not city_name:
+        if name.isdigit():
+            return name
+        if not name:
             return "100010000"
-        if city_name not in BOSS_CITY_CODES:
-            raise ValueError("暂未配置 Boss 城市编码：%s，请在 platforms.py 补充" % city_name)
-        return BOSS_CITY_CODES[city_name]
-    return city_name or ""
+        if name not in BOSS_CITY_CODES:
+            raise ValueError("暂未配置 Boss 城市编码：%s，请在 platforms.py 补充" % name)
+        return BOSS_CITY_CODES[name]
+    if platform_key in ("liepin", "job51", "zhilian"):
+        table = {"liepin": LIE_PIN_CITY_CODES,
+                 "job51": JOB51_CITY_CODES,
+                 "zhilian": ZHILIAN_CITY_CODES}[platform_key]
+        label = {"liepin": "猎聘", "job51": "前程无忧", "zhilian": "智联"}[platform_key]
+        if not name:
+            return ""
+        if name.isdigit():
+            return name
+        if name not in table:
+            raise ValueError("暂未配置%s城市编码：%s，请在 platforms.py 补充" % (label, name))
+        return table[name]
+    return name
 
 
 def cookie_domain(platform_key):
