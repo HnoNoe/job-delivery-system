@@ -176,3 +176,21 @@ python main.py search <平台> <关键词>
 5. **清理**：app.py 移除不再使用的 matplotlib / plotly 直接导入（图表全在 viz.py）。
 6. theme.chart 统一清空 px 默认的 "variable" 图例标题。
 7. 回归：6 个 verify_* + mock_e2e 全部通过。
+
+---
+
+## 十二、2026-11-09 用户画像广场（多用户空间定位）
+
+1. **新页面 `pages/01_画像广场.py`**（Streamlit 多页应用，侧栏自动出现「画像广场」导航）：
+   KPI 总览 + 定位用户选择器 + 双空间模式 + 2D/3D 切换 + 用户指标总表。
+2. **viz.py 新增三件套**：
+   - `user_feature_table()`：每用户一行，轴指标 = GPA / 排名优秀度 / 经历段数 / 技能数 /
+     累计投递 / 进面试率 / 平均匹配分（`viz.USER_AXES` 常量维护可选轴清单）；
+   - `user_space_chart(df, x, y, z, highlight_id)`：自选轴 2D/3D 散点，定位用户红色星形/菱形；
+   - `user_semantic_space(highlight_id, three_d)`：式一 user_vec 的 PCA 语义空间。
+3. **注意**：轴含空值的用户会被 dropna 剔除；页面已对「定位用户被剔除」给警告文案。
+   GPA/排名优秀度等画像轴人人有值，进面试率/平均匹配分只覆盖投过递的用户。
+4. 演示数据脚本 `_seed_demo_users.py`（6 个用户，幂等重跑）。注意两个坑已修：
+   SQLite 事务内新连接看不到未提交数据；单写者锁下不能嵌套持有连接。
+5. 多用户现状说明：**数据层天然多用户**（user_records 累积 + 每用户独立 weights/快照/任务），
+   但应用层无账户体系（无注册登录、无切换），真实投递强绑本机浏览器登录态，无法直接上云。

@@ -81,6 +81,17 @@ def register_template():
 register_template()
 
 
+def full_width_kwargs():
+    """st.dataframe 全宽参数跨版本适配（Streamlit ≥1.49 用 width='stretch'）。"""
+    try:
+        major, minor = (int(x) for x in st.__version__.split(".")[:2])
+        if (major, minor) >= (1, 49):
+            return {"width": "stretch"}
+    except Exception:
+        pass
+    return {"use_container_width": True}
+
+
 def chart(fig, height=None, **kwargs):
     """统一的图表渲染入口：应用高度，并按 Streamlit 版本选择全宽参数。
 

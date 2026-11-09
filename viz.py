@@ -226,3 +226,150 @@ def weight_pie(weights, exp_names):
     fig.update_traces(textposition="inside", textinfo="label+percent",
                       marker=dict(line=dict(color="#FFFFFF", width=2)))
     return fig
+
+
+# ---------------------------------------------------------------- 画像广场（多用户）
+# 可供自选的指标轴（user_feature_table 产出，均为数值列）
+USER_AXES = ["GPA", "排名优秀度", "经历段数", "技能数", "累计投递", "进面试率", "平均匹配分"]
+
+
+def _parse_ratio(text):
+    """解析 '3.7/4.0'、'5/120' 或纯数字为 0~1 比例；无法解析返回 None。"""
+    import re
+    if not text:
+        return None
+    m = re.match(r"^\s*([\d.]+)\s*/\s*([\d.]+)\s*$", str(text))
+    if m:
+        a, b = float(m.group(1)), float(m.group(2))
+        return a / b if b else None
+    try:
+        v = float(str(text).strip())
+    except (TypeError, ValueError):
+        return None
+    return v / 5.0 if v > 1 else v  # 纯数字 GPA 按 5 分制归一
+
+
+def user_feature_table():
+    """汇总所有用户的多维指标（每行一个用户，画像广场数据源）。
+
+    指标分两组：画像素质（GPA/排名优秀度/经历段数/技能数）
+    与投递表现（累计投递/进面试率/平均匹配分），均可作空间轴。
+    """
+    with db.get_conn() as conn:
+        users = conn.execute("SELECT user_id, l0 FROM user_records ORDER BY user_id").fetchall()
+        if not users:
+            return pd.DataFrame()
+        exp_n = {r["user_id"]: r["n"] for r in conn.execute(
+            "SELECT user_id, COUNT(*) AS n FROM experience_items GROUP BY user_id").fetchall()}
+        tstats = {r["user_id"]: dict(r) for r in conn.execute(
+            "SELECT user_id, SUM(status='已投递') AS d, SUM(result<>'') AS a,"
+            " SUM(result='进面试') AS iv, AVG(match_score) AS s"
+            " FROM delivery_tasks GROUP BY user_id").fetchall()}
+        exp_fields = conn.execute(
+            "SELECT user_id, fields FROM experience_items ORDER BY user_id, exp_index").fetchall()
+    exps_by_user = {}
+    for r in exp_fields:
+        exps_by_user.setdefault(r["user_id"], []).append(json.loads(r["fields"]))
+    rows = []
+    for u in users:
+        uid = u["user_id"]
+        l0 = json.loads(u["l0"])
+        t = tstats.get(uid, {})
+        answered = int(t.get("a") or 0)
+        interviewed = int(t.get("iv") or 0)
+        rank = _parse_ratio(l0.get("专业排名"))
+        rows.append({
+            "user_id": uid,
+            "姓名": l0.get("姓名", "") or ("用户%d" % uid),
+            "学校": l0.get("学校", ""),
+            "专业": l0.get("专业", ""),
+            "GPA": _parse_ratio(l0.get("GPA")),
+            "排名优秀度": (1.0 - rank) if rank is not None else None,
+            "经历段数": exp_n.get(uid, 0),
+            "技能数": len(set(recommend.extract_user_skills(exps_by_user.get(uid, [])))),
+            "累计投递": int(t.get("d") or 0),
+            "进面试率": round(interviewed / answered, 3) if answered else None,
+            "平均匹配分": round(float(t["s"]), 3) if t.get("s") is not None else None,
+        })
+    return pd.DataFrame(rows)
+
+
+def user_space_chart(df, x, y, z=None, highlight_id=None):
+    """自选轴 2D/3D 用户画像定位散点图。highlight_id 用红色菱形大点标出。"""
+    need = [c for c in (x, y, z) if c]
+    df = df.dropna(subset=need)
+    if df.empty:
+        return None
+
+    def _hover(sub):
+        return (sub["姓名"] + " · " + sub.get("学校", "") + " · " + sub.get("专业", "")).tolist()
+
+    is_hi = df["user_id"] == highlight_id
+    others, hi = df[~is_hi], df[is_hi]
+    fig = go.Figure()
+    if z:  # 3D
+        fig.add_trace(go.Scatter3d(
+            x=others[x], y=others[y], z=others[z], mode="markers+text",
+            text=others["姓名"], hovertext=_hover(others),
+            marker=dict(size=6, color=theme.MUTED, opacity=0.85), name="其他用户"))
+        if not hi.empty:
+            fig.add_trace(go.Scatter3d(
+                x=hi[x], y=hi[y], z=hi[z], mode="markers+text",
+                text=hi["姓名"], hovertext=_hover(hi),
+                marker=dict(size=11, color=theme.DANGER, symbol="diamond"),
+                name="定位用户"))
+        fig.update_layout(title="用户画像空间（%s × %s × %s）" % (x, y, z), height=560,
+                          scene=dict(xaxis_title=x, yaxis_title=y, zaxis_title=z,
+                                     xaxis=dict(gridcolor=theme.LINE),
+                                     yaxis=dict(gridcolor=theme.LINE),
+                                     zaxis=dict(gridcolor=theme.LINE)))
+    else:  # 2D
+        fig.add_trace(go.Scatter(
+            x=others[x], y=others[y], mode="markers+text",
+            text=others["姓名"], textposition="top center", hovertext=_hover(others),
+            marker=dict(size=11, color=theme.MUTED, opacity=0.85,
+                        line=dict(color="#FFFFFF", width=1)), name="其他用户"))
+        if not hi.empty:
+            fig.add_trace(go.Scatter(
+                x=hi[x], y=hi[y], mode="markers+text",
+                text=hi["姓名"], textposition="top center", hovertext=_hover(hi),
+                marker=dict(size=18, color=theme.DANGER, symbol="star",
+                            line=dict(color="#FFFFFF", width=1.5)), name="定位用户"))
+        fig.update_layout(title="用户画像空间（%s × %s）" % (x, y), height=460,
+                          xaxis_title=x, yaxis_title=y)
+    return fig
+
+
+def user_semantic_space(highlight_id=None, three_d=False):
+    """式一用户表示 user_vec 的 PCA 语义空间（2D/3D），用户少于 2 个返回 None。"""
+    try:
+        import numpy as np
+        with db.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT p.user_id, p.user_vec FROM profile_pool p "
+                "JOIN (SELECT user_id, MAX(snap_id) AS ms FROM profile_pool GROUP BY user_id) m "
+                "ON p.user_id=m.user_id AND p.snap_id=m.ms").fetchall()
+            users = conn.execute("SELECT user_id, l0 FROM user_records").fetchall()
+        names = {r["user_id"]: (json.loads(r["l0"]).get("姓名", "") or "用户%d" % r["user_id"])
+                 for r in users}
+        vecs, ids = [], []
+        for r in rows:
+            if r["user_vec"]:
+                vecs.append(np.asarray(json.loads(r["user_vec"])))
+                ids.append(r["user_id"])
+        if len(vecs) < 2:
+            return None
+        X = np.vstack(vecs)
+        Xc = X - X.mean(axis=0)
+        _, _, vt = np.linalg.svd(Xc, full_matrices=False)
+        dim = 3 if three_d else 2
+        proj = Xc @ vt.T[:, :dim]
+        df = pd.DataFrame({"user_id": ids,
+                           "姓名": [names.get(i, str(i)) for i in ids],
+                           "学校": "", "专业": "",
+                           "PC1": proj[:, 0], "PC2": proj[:, 1]})
+        if three_d:
+            df["PC3"] = proj[:, 2]
+        return user_space_chart(df, "PC1", "PC2", "PC3" if three_d else None, highlight_id)
+    except Exception:
+        return None  # 降维失败不阻断页面

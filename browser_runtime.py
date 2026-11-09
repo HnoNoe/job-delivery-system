@@ -17,11 +17,18 @@ def find_browser():
         found = shutil.which(name)
         if found:
             candidates.append(Path(found))
+    win_roots = []
     for env in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
         root = os.environ.get(env)
         if root:
-            candidates.extend(Path(root) / suffix for suffix in (
-                "Google/Chrome/Application/chrome.exe", "Microsoft/Edge/Application/msedge.exe"))
+            win_roots.append(Path(root))
+    if os.name == "nt":  # 环境变量缺失时兜底标准安装目录
+        win_roots.extend(Path(p) for p in (
+            "C:/Program Files", "C:/Program Files (x86)",
+            str(Path.home() / "AppData/Local")))
+    for root in win_roots:
+        candidates.extend(root / suffix for suffix in (
+            "Google/Chrome/Application/chrome.exe", "Microsoft/Edge/Application/msedge.exe"))
     candidates.extend(Path(p) for p in (
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
