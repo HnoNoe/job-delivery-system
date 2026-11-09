@@ -245,6 +245,23 @@ class RegressionTests(unittest.TestCase):
         launch.assert_called_once_with("mock", hidden=True)
         session._DPAGES.clear()
 
+    def test_can_search_with_profile_only(self):
+        """有浏览器登录目录但没有 cookie 快照时，界面门控应允许尝试检索。"""
+        profile = session.profile_dir("boss")
+        profile.mkdir(parents=True, exist_ok=True)
+        (profile / "Preferences").write_text("x", encoding="utf-8")
+        self.assertFalse(session.has_session("boss"))
+        self.assertTrue(session.profile_available("boss"))
+        self.assertTrue(session.can_search("boss"))
+
+    def test_latest_user_data_roundtrip(self):
+        """刷新后可取回最近一次保存的用户信息（用于一键回填）。"""
+        result = self.run_pipeline()
+        saved = pipeline.latest_user_data()
+        self.assertEqual(saved["user_id"], result["user_id"])
+        self.assertEqual(saved["l0"]["姓名"], "测试用户")
+        self.assertEqual(len(saved["l2"]), 2)
+
     def test_login_status_detection(self):
         import time as _time
         import login_status

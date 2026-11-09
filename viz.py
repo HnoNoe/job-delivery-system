@@ -161,6 +161,114 @@ def funnel_rates(retrieved, matched, delivered, interviewed):
             round(100 * interviewed / delivered) if delivered else 0)
 
 
+# ---------------------------------------------------------------- 三维匹配空间
+def _fit_point(job):
+    """岗位在三维匹配空间的坐标 (技能, 方向, 条件)，各自归一化到 0~100。
+
+    技能 = 技能匹配得分 / 40；方向 = 岗位方向得分 / 25；
+    条件 = 学历+薪资+行业+城市 / 35（四项先求和再整体截断，负分按 0 计）。
+    """
+    scores = {p[0]: p[1] for p in (job.get("分数明细") or [])}
+
+    def pct(v, full):
+        return max(0.0, min(100.0, 100.0 * float(v) / full))
+
+    cond = sum(scores.get(k, 0) for k in ("学历", "薪资", "行业", "城市"))
+    return pct(scores.get("技能匹配", 0), 40), pct(scores.get("岗位方向", 0), 25), pct(cond, 35)
+
+
+def _has_dims(job):
+    """是否有六维分数明细；缺失时坐标属于“未知”，不能当成真实 0 分。"""
+    return bool(job.get("分数明细"))
+
+
+def _coord_key(x, y, z):
+    """同坐标聚合键：归一到 6 位小数，吸收浮点误差但不合并屏幕上只是相邻的点。"""
+    return "%.6f|%.6f|%.6f" % (round(x, 6), round(y, 6), round(z, 6))
+
+
+def build_match_space_data(targets):
+    """把目标岗位整理成“坐标组 + 岗位索引”，供三维图与详情联动使用。
+
+    返回：
+      groups: [{group_id, coords, task_ids, jobs, count}]，按岗位原始顺序首次出现排序
+      jobs_by_id: {task_id: {task_id, job, coords, group_id, index}}
+      default_task_id: 第一个有效岗位（原顺序）
+      unknown_task_ids: 缺少六维分数、无法定位的岗位
+    岗位缺少 task_id 时使用“序号+名称”的稳定替代键，保证同名岗位不冲突。
+    """
+    jobs_by_id, groups, unknown = {}, {}, []
+    for index, job in enumerate(targets or []):
+        task_id = job.get("task_id")
+        if task_id in (None, ""):
+            task_id = "未编号-%d-%s" % (index, job.get("岗位名称", ""))
+        task_id = str(task_id)
+        if task_id in jobs_by_id:
+            task_id = "%s#%d" % (task_id, index)
+
+        if _has_dims(job):
+            coords = _fit_point(job)
+            group_id = _coord_key(*coords)
+        else:
+            coords, group_id = None, None
+
+        jobs_by_id[task_id] = {"task_id": task_id, "job": job,
+                               "coords": coords, "group_id": group_id, "index": index}
+        if group_id is None:
+            unknown.append(task_id)
+            continue
+        group = groups.get(group_id)
+        if group is None:
+            group = {"group_id": group_id, "coords": list(coords),
+                     "task_ids": [], "jobs": []}
+            groups[group_id] = group
+        group["task_ids"].append(task_id)
+        group["jobs"].append(job)
+
+    ordered = list(groups.values())
+    for group in ordered:
+        group["count"] = len(group["task_ids"])
+
+    default_task_id = next(iter(jobs_by_id), None)
+    return {
+        "groups": ordered,
+        "group_by_id": groups,
+        "jobs_by_id": jobs_by_id,
+        "default_task_id": default_task_id,
+        "job_count": len(jobs_by_id),
+        "group_count": len(ordered),
+        "unknown_task_ids": unknown,
+    }
+
+
+def resolve_selected_task(space, selected_task_id):
+    """选中态解析：原选中任务仍存在就保留，否则回到第一个有效岗位。"""
+    jobs = (space or {}).get("jobs_by_id") or {}
+    if selected_task_id in jobs:
+        return selected_task_id
+    return (space or {}).get("default_task_id")
+
+
+def match_space_rows(targets):
+    """全部岗位明细（“查看全部岗位”折叠区用）；缺分数时明确显示“未知”。"""
+    rows = []
+    for job in targets or []:
+        if _has_dims(job):
+            x, y, z = _fit_point(job)
+            pos = (round(x), round(y), round(z))
+        else:
+            pos = ("未知", "未知", "未知")
+        score = job.get("score")
+        rows.append({
+            "岗位": job.get("岗位名称", ""),
+            "单位": job.get("单位名称", ""),
+            "等级": job.get("等级", ""),
+            "匹配分": round(float(score), 3) if score is not None else "未知",
+            "技能适配": pos[0], "方向适配": pos[1], "条件适配": pos[2],
+        })
+    return rows
+
+
 # ---------------------------------------------------------------- 语义空间
 def pca_scatter(user_id):
     """岗位语义空间 PCA 散点图（★=用户画像）。降维失败或数据不足返回 None。"""

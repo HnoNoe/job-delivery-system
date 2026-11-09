@@ -10,7 +10,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 from test_support import isolate_test_environment
 isolate_test_environment()
 
-import config, db, pipeline, recommend, feedback
+import config, db, pipeline, recommend, feedback, persona, viz, theme, workbench
 
 config.SAFE_MODE = True
 db.init_db()
@@ -77,6 +77,102 @@ feedback.mark_result(tid, 1)
 ev = feedback.get_profile_evolution(r["user_id"])
 w = json.loads(ev[-1]["weights"])
 ok &= check("权重演进快照非空且和为1", ev and abs(sum(w) - 1.0) < 1e-6)
+
+# ⑥ 人物画像（⑤ 新卡片的数据源）：身份/技能/方向/一句话齐全
+p = persona.build_persona(user_data, targets=targets, weights=w)
+ok &= check("人物画像含姓名与身份", p["姓名"] == "张三" and "本科" in p["身份"])
+ok &= check("人物画像技能标签非空", bool(p["技能标签"]))
+ok &= check("人物画像一句话含经历数", ("%d 段经历" % len(user_data["l2"])) in p["一句话"])
+ok &= check("人物画像优势/短板来自能力维度", set(p["优势"]) | set(p["短板"]) <= set(persona.ABILITY_DIMS))
+ok &= check("人物画像能力匹配为百分比",
+            p["能力匹配"] and all(0 <= v <= 100 for v in p["能力匹配"].values()))
+ok &= check("人物画像权重状态随反馈变化", "已修正" in p["画像规模"])
+
+# ⑦ 三维匹配空间：坐标、聚合、选中与主题（分析工作台数据契约）
+ok &= check("三维坐标落在 0~100",
+            all(0 <= c <= 100 for j in targets for c in viz._fit_point(j)))
+expected = [max(0, min(100, 100 * next(s for n, s, *_ in j["分数明细"] if n == "技能匹配") / 40))
+            for j in targets]
+ok &= check("三维技能轴 == 技能得分/40", all(
+    abs(viz._fit_point(j)[0] - e) < 1e-9 for j, e in zip(targets, expected)))
+
+space = viz.build_match_space_data(targets)
+ok &= check("空输入返回空结构", viz.build_match_space_data([])["job_count"] == 0
+            and viz.build_match_space_data([])["groups"] == [])
+ok &= check("每组岗位数与任务ID数一致",
+            all(g["count"] == len(g["task_ids"]) == len(g["jobs"]) for g in space["groups"]))
+ok &= check("聚合前后岗位总数与ID集合一致",
+            space["job_count"] == len(targets)
+            and {t for g in space["groups"] for t in g["task_ids"]}
+            <= set(space["jobs_by_id"].keys()))
+ok &= check("默认选中第一个岗位", space["default_task_id"] == str(targets[0]["task_id"]))
+
+# 同坐标聚合：三轴相同的岗位进同一组，组内保持原顺序
+same = [
+    {"task_id": 101, "岗位名称": "后端", "单位名称": "A", "score": 0.7, "等级": "A",
+     "分数明细": [("技能匹配", 40, ""), ("岗位方向", 25, ""), ("学历", 15, ""),
+                ("薪资", 10, ""), ("行业", 5, ""), ("城市", 5, "")]},
+    {"task_id": 102, "岗位名称": "后端", "单位名称": "B", "score": 0.6, "等级": "B",
+     "分数明细": [("技能匹配", 40, ""), ("岗位方向", 25, ""), ("学历", 15, ""),
+                ("薪资", 10, ""), ("行业", 5, ""), ("城市", 5, "")]},
+    {"task_id": 103, "岗位名称": "前端", "单位名称": "C", "score": 0.5, "等级": "C",
+     "分数明细": [("技能匹配", 0, ""), ("岗位方向", 0, ""), ("学历", 15, ""),
+                ("薪资", 10, ""), ("行业", 5, ""), ("城市", 5, "")]},
+]
+sdata = viz.build_match_space_data(same)
+ok &= check("同坐标岗位聚合为一个组点",
+            sdata["group_count"] == 2
+            and sdata["groups"][0]["count"] == 2
+            and sdata["groups"][0]["task_ids"] == ["101", "102"])
+ok &= check("同名不同单位可独立选择",
+            "101" in sdata["jobs_by_id"] and "102" in sdata["jobs_by_id"])
+ok &= check("选中ID失效时回退到第一个岗位",
+            viz.resolve_selected_task(sdata, "不存在") == "101"
+            and viz.resolve_selected_task(sdata, "102") == "102")
+
+# 近似但不相等的坐标不应被合并（6 位小数容差）
+near = [
+    {"task_id": 201, "岗位名称": "x", "等级": "A", "score": 0.5,
+     "分数明细": [("技能匹配", 13.333333, ""), ("岗位方向", 0, ""), ("学历", 0, ""),
+                ("薪资", 0, ""), ("行业", 0, ""), ("城市", 0, "")]},
+    {"task_id": 202, "岗位名称": "y", "等级": "A", "score": 0.5,
+     "分数明细": [("技能匹配", 13.333334, ""), ("岗位方向", 0, ""), ("学历", 0, ""),
+                ("薪资", 0, ""), ("行业", 0, ""), ("城市", 0, "")]},
+]
+ok &= check("接近但不相等的坐标不合并", viz.build_match_space_data(near)["group_count"] == 2)
+
+# 缺六维分数：不能当成 0 分，明细显示“未知”
+nodim = [{"task_id": 301, "岗位名称": "z", "单位名称": "D", "等级": "B", "score": 0.4}]
+ndata = viz.build_match_space_data(nodim)
+ok &= check("缺分数岗位不进入三维图且标记未知",
+            ndata["group_count"] == 0 and ndata["unknown_task_ids"] == ["301"]
+            and viz.match_space_rows(nodim)[0]["技能适配"] == "未知")
+
+ok &= check("选中ID对应的组与坐标一致",
+            sdata["jobs_by_id"]["102"]["coords"]
+            == tuple(sdata["group_by_id"][sdata["jobs_by_id"]["102"]["group_id"]]["coords"]))
+ok &= check("组内顺序沿用岗位原顺序", sdata["groups"][0]["task_ids"] == ["101", "102"])
+
+payload = workbench._jobs_payload(ndata)
+ok &= check("组件参数保留未知坐标与原始匹配分",
+            payload[0]["x"] is None and payload[0]["score"] == 0.4
+            and payload[0]["task_id"] == "301")
+ok &= check("匹配空间组件文件存在",
+            (workbench._COMPONENT_DIR / "index.html").is_file())
+
+colors_light = theme.match_space_colors()
+ok &= check("亮色工作台配色来自局部令牌",
+            colors_light["bg"] == theme.MATCH_SPACE["light"]["bg"]
+            and colors_light["accent"] == theme.MATCH_SPACE["light"]["accent"])
+_orig_dark = theme.is_dark
+theme.is_dark = lambda: True
+try:
+    colors_dark = theme.match_space_colors()
+finally:
+    theme.is_dark = _orig_dark
+ok &= check("暗色主题切换工作台配色",
+            colors_dark["bg"] == theme.MATCH_SPACE["dark"]["bg"]
+            and colors_dark["accent"] == theme.MATCH_SPACE["dark"]["accent"])
 
 print()
 print("=== 可视化数据源回归测试", "通过" if ok else "有失败", "===")

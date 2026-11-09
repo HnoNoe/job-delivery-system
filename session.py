@@ -380,11 +380,26 @@ _HIDDEN_LAUNCH = set()  # 以“屏幕外窗口”启动的平台（检索静默
 
 
 def is_active(platform_key):
-    """平台当前是否可用：用户已经确认并保存登录态。
-
-    公共访问器：外部模块不应直接读私有 `_DPAGES`。
-    """
+    """平台是否已有保存的 cookie 快照（严格口径，检索接口/API 路径使用）。"""
     return has_session(platform_key)
+
+
+def profile_available(platform_key):
+    """本地是否已有该平台的浏览器用户目录（可能仍处于登录态，也可能已失效）。"""
+    try:
+        path = profile_dir(platform_key)
+        return bool(path and path.is_dir() and any(path.iterdir()))
+    except OSError:
+        return False
+
+
+def can_search(platform_key):
+    """界面门控口径：有 cookie 快照，或本地已有浏览器登录目录。
+
+    浏览器目录不保证登录仍有效；检索时由 dpage_search 记录真实原因
+    （“登录态失效，已重定向到登录页”），界面会提示回第②步重新扫码。
+    """
+    return has_session(platform_key) or profile_available(platform_key)
 
 
 def last_search_error(platform_key):

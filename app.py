@@ -25,6 +25,8 @@ import feedback
 import verification
 import recommend
 import pipeline
+import persona
+import workbench
 import theme
 import viz
 import login_status
@@ -65,6 +67,35 @@ def show_table(df, **kwargs):
     st.dataframe(df, **_full_width_kwargs(), **kwargs)
 
 
+def _apply_saved_user(saved):
+    """把上次保存的信息写进表单 widget 状态（必须在控件创建前调用）。"""
+    l0 = saved.get("l0") or {}
+    for field in schema.L0_FIELDS:
+        st.session_state["l0_" + field] = str(l0.get(field, "") or "")
+
+    l2 = saved.get("l2") or []
+    for typ, key in (("实习/工作", "l1_iw"), ("项目", "l1_proj")):
+        items = [x for x in l2 if x.get("类型") == typ][:5]
+        st.session_state[key] = len(items)
+        for idx, item in enumerate(items):
+            for suffix, field in (("name", "名称"), ("role", "角色"), ("from", "时间起"),
+                                  ("to", "时间止"), ("what", "事项"), ("result", "结果"),
+                                  ("tech", "技术工具")):
+                st.session_state["l2_%s_%d_%s" % (typ, idx, suffix)] = str(item.get(field, "") or "")
+
+    l3 = saved.get("l3") or {}
+    st.session_state["l3_city"] = l3.get("意向城市", "")
+    st.session_state["l3_industry"] = l3.get("意向行业", "")
+    st.session_state["l3_job"] = l3.get("意向岗位", "")
+    st.session_state["l3_taboo"] = l3.get("禁忌公司", "")
+    st.session_state["l3_strategy"] = l3.get("投递策略") if l3.get("投递策略") in ("海投", "精投") else "海投"
+    st.session_state["l3_salary"] = l3.get("期望薪资", "")
+    st.session_state["l3_onboard"] = l3.get("到岗时间", "")
+    st.session_state["l3_trip"] = l3.get("能否出差") if l3.get("能否出差") in ("是", "否") else "是"
+    st.session_state.pop("parsed", None)
+    st.session_state["info_confirmed"] = False
+
+
 def _wizard_states():
     """六步完成状态（done/active/todo），驱动侧栏进度条与步骤头状态牌。
 
@@ -83,7 +114,7 @@ def _wizard_states():
         feedback_given = bool(row and row["f"])
     done = [
         bool(st.session_state.get("info_confirmed")),     # ① 确认信息
-        any(session.is_active(pk) for pk in platforms.PLATFORMS),  # ② 平台登录
+        any(session.can_search(pk) for pk in platforms.PLATFORMS),  # ② 平台登录
         bool(st.session_state.get("jobs")),               # ③ 检索岗位
         s4,                                               # ④ 准备材料
         delivered,                                        # ⑤ 投递与反馈
@@ -140,19 +171,33 @@ with st.sidebar:
     st.caption("按 ①→⑥ 顺序，每步点一个按钮即可。")
     theme.stepper(list(zip(
         ["①信息", "②登录", "③检索", "④材料", "⑤投递", "⑥记录"], _states)))
-    if st.button("🔄 重新开始"):
-        # 先清平台会话与浏览器，再清界面状态，最后一次性刷新
-        #（st.rerun 会中断本次执行，写在它后面的代码永远跑不到）
-        for pk in platforms.PLATFORMS:
-            session.clear_session(pk)
-            session.dpage_quit(pk)  # 同时关闭保持打开的浏览器
-        for k in list(st.session_state.keys()):
-            if (k in ("info_confirmed", "confirmed_info", "logged_in", "jobs", "result", "parsed",
-                      "resume_pdf", "resume_text", "parsed_pdf_hash", "rematch", "rematch_old", "prepared_user_data")
-                    or k.startswith(("l0_", "l2_", "l3_", "sel_")) or k in ("l1_iw", "l1_proj")):
-                st.session_state.pop(k, None)
-        st.session_state.pop("login_report", None)
-        st.rerun()
+    c_reset, c_safe = st.columns([1.15, 1])
+    with c_reset:
+        if st.button("🔄 重新开始"):
+            # 先清平台会话与浏览器，再清界面状态，最后一次性刷新
+            #（st.rerun 会中断本次执行，写在它后面的代码永远跑不到）
+            for pk in platforms.PLATFORMS:
+                session.clear_session(pk)
+                session.dpage_quit(pk)  # 同时关闭保持打开的浏览器
+            for k in list(st.session_state.keys()):
+                if (k in ("info_confirmed", "confirmed_info", "logged_in", "jobs", "result", "parsed",
+                          "resume_pdf", "resume_text", "parsed_pdf_hash", "rematch", "rematch_old", "prepared_user_data")
+                        or k.startswith(("l0_", "l2_", "l3_", "sel_")) or k in ("l1_iw", "l1_proj")):
+                    st.session_state.pop(k, None)
+            st.session_state.pop("login_report", None)
+            st.rerun()
+    with c_safe:
+        st.caption("安全模式")
+        _safe = st.toggle(
+            "安全模式",
+            value=bool(config.SAFE_MODE),
+            key="safe_mode_toggle",
+            label_visibility="collapsed",
+            help="开启：投递只生成招呼语，不自动发消息给 HR；关闭：真实投递（有封号与合规风险）。",
+        )
+        config.SAFE_MODE = bool(_safe)
+    if not config.SAFE_MODE:
+        st.caption("⚠️ 安全模式已关闭：投递会真实发送，请自行确认风险。")
     st.divider()
     st.caption("平台登录状态（启动 / 刷新页面时自动检测）")
     _report = _login_report()
@@ -188,6 +233,18 @@ theme.section("①", "确认我的信息",
               "下面是示例占位信息，请点开改成你的真实信息（姓名/学校/专业/手机/邮箱/经历）",
               status=_states[0])
 with st.expander("查看 / 修改我的信息", expanded=True):
+    # 刷新 / 重开页面后，会话里的表单会回到示例数据；支持从本机数据库一键回填
+    try:
+        _saved_user = pipeline.latest_user_data()
+    except Exception:
+        _saved_user = None
+    if _saved_user:
+        _saved_name = (_saved_user.get("l0") or {}).get("姓名") or "未命名"
+        st.caption("本机已保存过用户 #%d（%s）。刷新或重开后可用一键回填，再点下方确认。"
+                   % (_saved_user["user_id"], _saved_name))
+        if st.button("📂 载入上次填写的信息", key="btn_restore_user"):
+            _apply_saved_user(_saved_user)
+            st.rerun()
     # 粘贴简历自动解析（减少手填）
     with st.expander("📋 粘贴简历文本自动填充（可选）"):
         resume_text = st.text_area("把简历内容粘贴到这里，点解析自动提取姓名/手机/邮箱/学校/专业/技能",
@@ -344,8 +401,12 @@ for i, k in enumerate(keys):
 if selected:
     for k in selected:
         p = platforms.get(k)
-        logged = session.is_active(k)
-        st.markdown(("🟢 " if logged else "⚪ ") + p["name"] + ("（已登录）" if logged else "（未登录）"))
+        if session.has_session(k):
+            st.markdown("🟢 " + p["name"] + "（已登录，已保存 cookie）")
+        elif session.profile_available(k):
+            st.markdown("🟡 " + p["name"] + "（有本地登录目录，未验证；若检索提示失效请重新扫码）")
+        else:
+            st.markdown("⚪ " + p["name"] + "（未登录）")
     c1, c2 = st.columns(2)
     if c1.button("🌐 打开登录页", key="btn_real_open"):
         for k in selected:
@@ -371,9 +432,9 @@ if selected:
         for _line in failed:
             st.warning(_line)
 
-logged_in = [k for k in selected if session.is_active(k)]
+logged_in = [k for k in selected if session.can_search(k)]
 if logged_in:
-    st.success("🟢 已登录平台：" + "、".join(platforms.get(k)["name"] for k in logged_in))
+    st.success("🔍 可用于检索的平台：" + "、".join(platforms.get(k)["name"] for k in logged_in))
 
 # ================= 步骤③ 检索岗位 =================
 st.markdown("---")
@@ -381,14 +442,23 @@ theme.section("③", "检索岗位", "输入关键词，在已登录平台检索
 kw = st.text_input("检索关键词", value="Python 后端", key="kw")
 pages = st.number_input("检索页数（每页约15岗）", 1, 3, 2, key="pages",
                         help="单次最多3页，防平台限流封号")
-# 前置门控：信息未确认 / 平台未登录时禁用按钮并给出引导，而不是点了才警告
+# 前置门控：信息未确认 / 平台无可用登录态时禁用按钮，并给出具体原因
 _info_ok = bool(st.session_state.get("info_confirmed"))
-_login_ok = any(session.is_active(k) for k in selected)
+_login_ok = any(session.can_search(k) for k in selected)
+_blockers = []
+if not selected:
+    _blockers.append("第②步未勾选平台")
+if not _info_ok:
+    _blockers.append("第①步信息未确认")
+if not _login_ok:
+    _blockers.append("第②步没有可用登录态")
 if not _info_ok:
     st.caption("🔒 先在第 ① 步点「✅ 确认信息，进入下一步」")
 elif not _login_ok:
-    st.caption("🔒 先在第 ② 步勾选平台并完成扫码登录")
-if st.button("🔍 开始检索", type="primary", disabled=not (_info_ok and _login_ok)):
+    st.caption("🔒 先在第 ② 步勾选平台，点「🌐 打开登录页」扫码后点「✅ 我已完成登录」")
+if st.button("🔍 开始检索", type="primary",
+             disabled=not (_info_ok and _login_ok),
+             help="；".join(_blockers) if _blockers else "在已登录平台检索岗位"):
     # 取意向城市第一个，映射为平台城市码
     city = (user_data["l3"].get("意向城市", "北京") or "北京").replace("，", ",").split(",")[0].strip()
     st.caption("⏳ 首次检索需启动浏览器并真实搜索，约 30~60 秒，请稍候…")
@@ -399,6 +469,10 @@ if st.button("🔍 开始检索", type="primary", disabled=not (_info_ok and _lo
         st.session_state.pop(_key, None)
     for k, msg in logs:
         st.caption(f"{platforms.get(k)['name']}：{msg}")
+    _login_fail = [k for k in logged_in if "登录" in (session.last_search_error(k) or "")]
+    if _login_fail:
+        st.warning("登录态已失效：%s。请回第②步重新扫码，并点「✅ 我已完成登录」后再检索。"
+                   % "、".join(platforms.get(k)["name"] for k in _login_fail))
     st.success(f"✅ 共检索到 {len(jobs)} 个岗位")
     st.info("👉 下一步：点击第 ④ 步的「🚀 准备投递材料」")
 if st.session_state.get("jobs") is not None:
@@ -504,59 +578,21 @@ if r and r.get("ok"):
                 if not _ok:
                     st.caption(f"· 任务{_tid}：{_msg}")
             st.rerun()
-    # ---- 数学分析可视化（图表构造全部在 viz.py，这里只做布局） ----
-    with st.expander("📊 数学分析可视化（等级分布·匹配分·画像适配）", expanded=True):
-        _targets = r["target_jobs"]
-        # KPI 概览卡
-        _delivered_n = sum(1 for _s, _r2 in _task_states.values() if _s == "已投递")
-        _avg_score = round(sum(float(j["score"]) for j in _targets) / len(_targets), 3) if _targets else 0
-        _a_count = sum(1 for j in _targets if j["等级"] == "A")
-        _k1, _k2, _k3, _k4 = st.columns(4)
-        _k1.metric("目标岗位", len(_targets))
-        _k2.metric("平均匹配分", _avg_score)
-        _k3.metric("A 级强匹配", _a_count)
-        _k4.metric("已投递", _delivered_n)
-        _v1, _v2 = st.columns(2)
-        with _v1:
-            _fig = viz.grade_donut(_targets)
-            theme.chart(_fig) if _fig is not None else st.caption("暂无岗位")
-        with _v2:
-            _fig = viz.score_bar(_targets)
-            if _fig is not None:
-                theme.chart(_fig)
-        # 画像六维适配（第一名岗位：雷达图 + 柱状图）
-        _top = _targets[0] if _targets else None
-        _radar = viz.six_dim_radar(_top) if _top else None
-        _bars = viz.six_dim_bars(_top) if _top else None
-        if _radar is not None and _bars is not None:
-            _a1, _a2 = st.columns([1, 1.3])
-            with _a1:
-                theme.chart(_radar)
-            with _a2:
-                theme.chart(_bars)
-            st.caption("维度权重：技能40 + 方向25 + 学历15 + 薪资10 + 行业5 + 城市5（合计100）；负分表示不满足项")
-        # 所有岗位六维适配对比（堆叠柱状图）
-        _fig = viz.stacked_dims(_targets)
-        if _fig is not None:
-            theme.chart(_fig)
-        # 技能覆盖分析（用户技能 vs 岗位要求技能）
-        _fig, _skills = viz.skill_coverage(_targets, prepared_data.get("l2", []))
-        if _fig is not None:
-            theme.chart(_fig)
-            st.caption("用户技能 %s" % ("、".join(_skills) or "无"))
-        # 投递漏斗（检索→匹配→投递→进面试 转化）
-        _retrieved = len(st.session_state.get("jobs", []))
-        _delivered = sum(1 for _s, _r2 in _task_states.values() if _s == "已投递")
-        _interviewed = sum(1 for _s, _r2 in _task_states.values() if _r2 == "进面试")
-        _fig = viz.delivery_funnel(_retrieved, len(_targets), _delivered, _interviewed)
-        if _fig is not None:
-            theme.chart(_fig)
-            st.caption("转化率：匹配 %d%% → 投递 %d%% → 进面试 %d%%（相对上一环节）"
-                       % viz.funnel_rates(_retrieved, len(_targets), _delivered, _interviewed))
-        # 岗位语义空间（PCA 降维散点图）：你的画像离哪些岗位最近
-        _fig = viz.pca_scatter(r["user_id"])
-        if _fig is not None:
-            theme.chart(_fig)
+    # ---- 岗位匹配空间分析工作台（人物画像摘要 + 三维图 + 右侧详情） ----
+    _targets = r["target_jobs"]
+    # KPI 概览卡
+    _delivered_n = sum(1 for _s, _r2 in _task_states.values() if _s == "已投递")
+    _avg_score = round(sum(float(j["score"]) for j in _targets) / len(_targets), 3) if _targets else 0
+    _a_count = sum(1 for j in _targets if j["等级"] == "A")
+    _k1, _k2, _k3, _k4 = st.columns(4)
+    _k1.metric("目标岗位", len(_targets))
+    _k2.metric("平均匹配分", _avg_score)
+    _k3.metric("A 级强匹配", _a_count)
+    _k4.metric("已投递", _delivered_n)
+
+    _persona = persona.build_persona(prepared_data, targets=_targets,
+                                     weights=r.get("weights"))
+    workbench.render(_targets, _persona, key_prefix="ms")
     for job in r["target_jobs"]:
         with st.container(border=True):
             _status, _result = _task_states.get(job["task_id"], ("待生成", None))

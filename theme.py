@@ -44,7 +44,59 @@ EVOLUTION = {"反馈前": MUTED, "反馈后": PRIMARY}
 FONT_STACK = ('"PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", '
               '"Source Han Sans SC", system-ui, sans-serif')
 
+# 按钮专用字体：优先黑体（Windows SimHei / 黑体，macOS Heiti SC），加粗后按钮文字更清晰
+BUTTON_FONT = ('"SimHei", "黑体", "Heiti SC", "Microsoft YaHei", "PingFang SC", '
+               '"Noto Sans CJK SC", system-ui, sans-serif')
+
 GRADIENT = f"linear-gradient(120deg, {PRIMARY} 0%, {VIOLET} 55%, {PURPLE} 100%)"
+
+
+# ---------------------------------------------------------------- 主题感知（亮/暗）
+def is_dark():
+    """当前主题是否为暗色。
+
+    只认显式的 `theme.base` 配置（config.toml 或启动参数 `--theme.base dark`）。
+    不读 `st.context.theme`：在无头浏览器/部分环境下它和实际渲染主题不一致，
+    会导致“页面是暗色但控件是亮色”的混合状态。
+    """
+    try:
+        return str(st.get_option("theme.base")).lower() == "dark"
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------- 分析工作台局部配色
+# 只作用于第⑤步三维工作台，不修改全站等级色（A/B/C 语义色仍用于详情徽标）。
+MATCH_SPACE = {
+    "light": {
+        "bg": "#FFFFFF", "panel": "#F8F9FC", "ink": "#202536", "sub": "#677083",
+        "line": "#E8EBF2", "grid": "#D7DCE8", "dot": "#9BA6BC",
+        "accent": "#5854DC", "accent_soft": "#F1F0FC",
+    },
+    "dark": {
+        "bg": "#151923", "panel": "#1B2130", "ink": "#E9EDF6", "sub": "#A7B0C3",
+        "line": "#30384A", "grid": "#485367", "dot": "#8693AE",
+        "accent": "#AAA4FF", "accent_soft": "#292541",
+    },
+}
+
+
+def match_space_colors():
+    """当前主题下的工作台配色（返回副本，调用方可以安全改）。"""
+    return dict(MATCH_SPACE["dark" if is_dark() else "light"])
+
+
+def dataframe(df, **kwargs):
+    """表格渲染入口：跨 Streamlit 版本全宽适配（业务代码不写弃用参数）。"""
+    try:
+        major, minor = (int(x) for x in st.__version__.split(".")[:2])
+        if (major, minor) >= (1, 49):
+            kwargs.setdefault("width", "stretch")
+            return st.dataframe(df, **kwargs)
+    except Exception:
+        pass
+    kwargs.setdefault("use_container_width", True)
+    return st.dataframe(df, **kwargs)
 
 
 # ---------------------------------------------------------------- Plotly 模板
@@ -239,7 +291,60 @@ def job_card_header(job):
 
 
 # ---------------------------------------------------------------- CSS 主题
-CSS = f"""
+def _theme_tokens():
+    """全站 CSS 令牌（亮/暗两套）。设计系统只在这里切换，组件 CSS 不写死颜色。"""
+    tokens = {"FONT_STACK": FONT_STACK, "BUTTON_FONT": BUTTON_FONT}
+    if is_dark():
+        tokens.update(
+            PAPER="#0E1117", CARD="#151923", INK="#E9EDF6", SLATE="#B7C0D0",
+            MUTED="#8A94A6", LINE="#30384A", PRIMARY="#8B84F0",
+            GRADIENT="linear-gradient(120deg, #4F46E5 0%, #6D28D9 55%, #7E22CE 100%)",
+            SURFACE="#232A3A", BORDER_SOFT="#2A3143", HOVER="#1E2432",
+            DISABLED_BG="#2A2547", DISABLED_BORDER="#4B4470",
+            SIDEBAR="#12161F", TRACK="#2A3040",
+            PILL_OK_FG="#34D399", PILL_OK_BG="#123B2E", PILL_OFF_BG="#2A3346",
+            PILL_WARN_FG="#FBBF24", PILL_WARN_BG="#3A2C12",
+            PILL_BAD_FG="#F87171", PILL_BAD_BG="#3A1D1D",
+            DONE_FG="#34D399", SHADOW="rgba(0, 0, 0, .45)",
+            HOVER_SHADOW="rgba(0, 0, 0, .55)",
+            BTN_BG="#262C3D", BTN_BG_HOVER="#2E3547", BTN_BORDER="#3A4358",
+            CAPTION_FG="#8A94A6", ALERT_FG="#E9EDF6",
+        )
+    else:
+        tokens.update(
+            PAPER="#F7F8FC", CARD="#FFFFFF", INK="#0F172A", SLATE="#475569",
+            MUTED="#94A3B8", LINE="#E2E8F0", PRIMARY="#4F46E5",
+            GRADIENT="linear-gradient(120deg, #4F46E5 0%, #7C3AED 55%, #A855F7 100%)",
+            SURFACE="#F1F5F9", BORDER_SOFT="#EEF2F7", HOVER="#F8FAFF",
+            DISABLED_BG="#EDE9FE", DISABLED_BORDER="#C7C2F5",
+            SIDEBAR="#FBFBFE", TRACK="#EEF1F7",
+            PILL_OK_FG="#047857", PILL_OK_BG="#D1FAE5", PILL_OFF_BG="#E2E8F0",
+            PILL_WARN_FG="#B45309", PILL_WARN_BG="#FEF3C7",
+            PILL_BAD_FG="#B91C1C", PILL_BAD_BG="#FEE2E2",
+            DONE_FG="#047857", SHADOW="rgba(15, 23, 42, .05)",
+            HOVER_SHADOW="rgba(15, 23, 42, .35)",
+            BTN_BG="#EEF2FF", BTN_BG_HOVER="#E0E7FF", BTN_BORDER="#C7D2FE",
+            CAPTION_FG="#64748B", ALERT_FG="#0F172A",
+        )
+    return tokens
+
+
+def _css():
+    T = _theme_tokens()
+    PAPER, CARD, INK = T["PAPER"], T["CARD"], T["INK"]
+    SLATE, MUTED, LINE, PRIMARY = T["SLATE"], T["MUTED"], T["LINE"], T["PRIMARY"]
+    GRADIENT, SURFACE, BORDER_SOFT, HOVER = T["GRADIENT"], T["SURFACE"], T["BORDER_SOFT"], T["HOVER"]
+    DISABLED_BG, DISABLED_BORDER = T["DISABLED_BG"], T["DISABLED_BORDER"]
+    SIDEBAR, TRACK, DONE_FG = T["SIDEBAR"], T["TRACK"], T["DONE_FG"]
+    PILL_OK_FG, PILL_OK_BG = T["PILL_OK_FG"], T["PILL_OK_BG"]
+    PILL_OFF_BG = T["PILL_OFF_BG"]
+    PILL_WARN_FG, PILL_WARN_BG = T["PILL_WARN_FG"], T["PILL_WARN_BG"]
+    PILL_BAD_FG, PILL_BAD_BG = T["PILL_BAD_FG"], T["PILL_BAD_BG"]
+    SHADOW, HOVER_SHADOW = T["SHADOW"], T["HOVER_SHADOW"]
+    FONT_STACK, BUTTON_FONT = T["FONT_STACK"], T["BUTTON_FONT"]
+    BTN_BG, BTN_BG_HOVER, BTN_BORDER = T["BTN_BG"], T["BTN_BG_HOVER"], T["BTN_BORDER"]
+    CAPTION_FG, ALERT_FG = T["CAPTION_FG"], T["ALERT_FG"]
+    return f"""
 <style>
 /* ===== 基础版面 ===== */
 .stApp {{ background: {PAPER}; }}
@@ -247,7 +352,7 @@ CSS = f"""
 html, body, [class*="css"] {{ font-family: {FONT_STACK}; }}
 h1, h2, h3, h4 {{ color: {INK}; letter-spacing: .01em; }}
 p, li, .stMarkdown {{ color: {SLATE}; }}
-.stCaption, [data-testid="stCaptionContainer"] {{ color: #64748B !important; }}
+.stCaption, [data-testid="stCaptionContainer"] {{ color: {CAPTION_FG} !important; }}
 hr {{ border: none; border-top: 1px solid {LINE}; margin: 1.6rem 0 .6rem; }}
 
 /* ===== 顶部品牌横幅 ===== */
@@ -290,67 +395,69 @@ hr {{ border: none; border-top: 1px solid {LINE}; margin: 1.6rem 0 .6rem; }}
   display: inline-flex; align-items: center; gap: .3rem;
   font-size: .78rem; font-weight: 600; padding: .12rem .6rem; border-radius: 999px;
 }}
-.pill-ok   {{ color: #047857; background: #D1FAE5; }}
-.pill-off  {{ color: {SLATE};  background: #E2E8F0; }}
-.pill-warn {{ color: #B45309; background: #FEF3C7; }}
-.pill-bad  {{ color: #B91C1C; background: #FEE2E2; }}
+.pill-ok   {{ color: {PILL_OK_FG}; background: {PILL_OK_BG}; }}
+.pill-off  {{ color: {SLATE};  background: {PILL_OFF_BG}; }}
+.pill-warn {{ color: {PILL_WARN_FG}; background: {PILL_WARN_BG}; }}
+.pill-bad  {{ color: {PILL_BAD_FG}; background: {PILL_BAD_BG}; }}
 
 /* ===== 检索结果表格（岗位名称可点击） ===== */
 .jtable-wrap {{
   overflow-x: auto; border: 1px solid {LINE}; border-radius: 12px;
-  background: {CARD}; box-shadow: 0 1px 3px rgba(15, 23, 42, .05);
+  background: {CARD}; box-shadow: 0 1px 3px {SHADOW};
 }}
 .jtable {{ width: 100%; border-collapse: collapse; font-size: .9rem; }}
 .jtable th {{
   text-align: left; white-space: nowrap;
-  padding: .6rem .85rem; background: #F1F5F9; color: {INK}; font-weight: 700;
+  padding: .6rem .85rem; background: {SURFACE}; color: {INK}; font-weight: 700;
   border-bottom: 1px solid {LINE};
 }}
 .jtable td {{
   padding: .55rem .85rem; color: {SLATE}; vertical-align: top;
-  border-bottom: 1px solid #EEF2F7;
+  border-bottom: 1px solid {BORDER_SOFT};
 }}
 .jtable tbody tr:last-child td {{ border-bottom: none; }}
-.jtable tbody tr:hover td {{ background: #F8FAFF; }}
+.jtable tbody tr:hover td {{ background: {HOVER}; }}
 .jtable a {{ color: {PRIMARY}; font-weight: 700; text-decoration: none; }}
 .jtable a:hover {{ text-decoration: underline; }}
 .jtable-cap {{ margin-top: .45rem; color: {MUTED}; font-size: .78rem; }}
 
 /* ===== 按钮 ===== */
-.stButton > button {{
-  border-radius: 10px; font-weight: 400; font-family: {FONT_STACK};
-  font-size: .95rem; letter-spacing: .01em; border: 1px solid #C7D2FE;
-  background: #EEF2FF; color: {INK};
+/* 用后代选择器：带 help 的按钮会被 Streamlit 包一层 tooltip span，
+   `.stButton > button` 会失配，导致字体和禁用配色回退到原生样式。 */
+.stButton button {{
+  border-radius: 10px; font-weight: 700; font-family: {BUTTON_FONT};
+  font-size: .95rem; letter-spacing: .01em; border: 1px solid {BTN_BORDER};
+  background: {BTN_BG}; color: {INK};
   -webkit-text-fill-color: {INK};
   transition: transform .08s ease, box-shadow .15s ease;
 }}
 /* Streamlit 会把按钮文字包在 <p> 里，而全局 p 的颜色是 SLATE，
    深色主题下就变成"黑底灰字"。这里让按钮内所有文字继承按钮颜色。 */
-.stButton > button p, .stButton > button div, .stButton > button span {{
+.stButton button p, .stButton button div, .stButton button span {{
   color: inherit !important; -webkit-text-fill-color: inherit !important;
 }}
-.stButton > button:hover {{
+.stButton button:hover {{
   transform: translateY(-1px);
-  background: #E0E7FF;
-  box-shadow: 0 6px 16px -8px rgba(15, 23, 42, .35);
+  background: {BTN_BG_HOVER};
+  box-shadow: 0 6px 16px -8px {HOVER_SHADOW};
 }}
-.stButton > button[kind="primary"] {{
+.stButton button[kind="primary"] {{
   background: {GRADIENT}; border: none; color: #FFFFFF;
   -webkit-text-fill-color: #FFFFFF;
   text-shadow: 0 1px 2px rgba(15, 23, 42, .28);
   box-shadow: 0 8px 20px -8px rgba(79, 70, 229, .6);
 }}
-.stButton > button[kind="primary"]:hover {{ background: {GRADIENT}; }}
+.stButton button[kind="primary"]:hover {{ background: {GRADIENT}; }}
 /* 禁用/运行中：原来 opacity:.45 + 半透明白字，文字几乎看不见。
    改为浅紫实底 + 近黑黑体字，不降透明度，保持可读。 */
-.stButton > button:disabled {{
+.stButton button:disabled {{
   opacity: 1 !important; transform: none; box-shadow: none;
-  background: #EDE9FE !important; border: 1px solid #C7C2F5 !important;
+  background: {DISABLED_BG} !important; border: 1px solid {DISABLED_BORDER} !important;
   color: {INK} !important; -webkit-text-fill-color: {INK} !important;
   text-shadow: none;
 }}
-.stButton > button[kind="primary"]:disabled {{
-  background: #EDE9FE !important; color: {INK} !important;
+.stButton button[kind="primary"]:disabled {{
+  background: {DISABLED_BG} !important; color: {INK} !important;
 }}
 
 /* ===== 输入控件 ===== */
@@ -364,7 +471,7 @@ hr {{ border: none; border-top: 1px solid {LINE}; margin: 1.6rem 0 .6rem; }}
 /* ===== 折叠卡片 ===== */
 [data-testid="stExpander"] {{
   background: {CARD}; border: 1px solid {LINE}; border-radius: 14px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, .05);
+  box-shadow: 0 1px 3px {SHADOW};
   overflow: hidden;
 }}
 [data-testid="stExpander"] details summary {{
@@ -381,7 +488,7 @@ hr {{ border: none; border-top: 1px solid {LINE}; margin: 1.6rem 0 .6rem; }}
 /* ===== 指标卡 ===== */
 [data-testid="stMetric"] {{
   background: {CARD}; border: 1px solid {LINE}; border-radius: 14px;
-  padding: .9rem 1.1rem; box-shadow: 0 1px 3px rgba(15, 23, 42, .05);
+  padding: .9rem 1.1rem; box-shadow: 0 1px 3px {SHADOW};
 }}
 [data-testid="stMetricLabel"] {{ color: {MUTED}; font-weight: 600; }}
 [data-testid="stMetricValue"] {{ color: {INK}; font-weight: 800; }}
@@ -394,12 +501,12 @@ hr {{ border: none; border-top: 1px solid {LINE}; margin: 1.6rem 0 .6rem; }}
 /* 提示条同理：全局 p 的灰色会盖掉 success/info/warning 的文字颜色 */
 [data-testid="stAlert"] p, [data-testid="stAlert"] li,
 [data-testid="stAlert"] [data-testid="stMarkdownContainer"] {{
-  color: #0F172A !important; font-weight: 400;
+  color: {ALERT_FG} !important; font-weight: 400;
 }}
 
 /* ===== 侧栏 ===== */
 [data-testid="stSidebar"] {{
-  background: #FBFBFE; border-right: 1px solid {LINE};
+  background: {SIDEBAR}; border-right: 1px solid {LINE};
 }}
 [data-testid="stSidebar"] .stCaption {{ letter-spacing: .02em; }}
 
@@ -427,7 +534,7 @@ hr {{ border: none; border-top: 1px solid {LINE}; margin: 1.6rem 0 .6rem; }}
   white-space: nowrap;
 }}
 .stp-ic {{ font-weight: 700; }}
-.stp-done {{ color: #047857; }}
+.stp-done {{ color: {DONE_FG}; }}
 .stp-active {{ color: {PRIMARY}; font-weight: 700; }}
 .stepper-pct {{ font-size: .72rem; color: {MUTED}; margin-top: .35rem; text-align: right; }}
 
@@ -450,7 +557,7 @@ hr {{ border: none; border-top: 1px solid {LINE}; margin: 1.6rem 0 .6rem; }}
 .junit {{ color: {MUTED}; font-size: .88rem; }}
 .jmeta {{ color: {MUTED}; font-size: .8rem; margin: .3rem 0 .45rem; }}
 .jbar {{
-  height: 6px; border-radius: 999px; background: #EEF1F7; overflow: hidden; width: 100%;
+  height: 6px; border-radius: 999px; background: {TRACK}; overflow: hidden; width: 100%;
 }}
 .jbar-fill {{ height: 100%; border-radius: 999px; transition: width .5s ease; }}
 </style>
@@ -458,5 +565,5 @@ hr {{ border: none; border-top: 1px solid {LINE}; margin: 1.6rem 0 .6rem; }}
 
 
 def apply():
-    """在 st.set_page_config 之后调用一次，注入全站 CSS。"""
-    st.markdown(CSS, unsafe_allow_html=True)
+    """在 st.set_page_config 之后调用一次，注入全站 CSS（随亮/暗主题切换）。"""
+    st.markdown(_css(), unsafe_allow_html=True)
