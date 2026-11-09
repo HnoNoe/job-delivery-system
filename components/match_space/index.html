@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  #ms-root {
+    --jd-surface: #ffffff; --jd-subtle: #f8f9fc; --jd-ink: #202536;
+    --jd-secondary: #677083; --jd-line: #e8ebf2; --jd-accent: #5854dc;
+    --jd-wash: #f1f0fc; --jd-grid: #d7dce8; --jd-other: #9ba6bc;
+    background: var(--jd-surface); color: var(--jd-ink);
+    font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    font-size: 13px; line-height: 1.55;
+    border: 1px solid var(--jd-line); border-radius: 18px;
+    overflow: hidden; box-sizing: border-box; width: 100%;
+  }
+  #ms-root *, #ms-root *::before, #ms-root *::after { box-sizing: border-box; }
+  #ms-root h2, #ms-root p, #ms-root h3 { margin: 0; }
+  .jd-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 22px 24px 16px; gap: 16px; }
+  .jd-header h2 { font-size: 21px; line-height: 1.4; font-weight: 600; letter-spacing: -.4px; }
+  .jd-header p { color: var(--jd-secondary); font-size: 12px; margin-top: 5px; }
+  .jd-eyebrow { font-size: 10px; letter-spacing: 2.1px; color: var(--jd-secondary); margin-bottom: 5px; }
+  .jd-demo { font-size: 11px; color: var(--jd-secondary); white-space: nowrap; padding-top: 4px; }
+  .jd-profile { margin: 0 24px; padding: 11px 14px; display: flex; align-items: center; gap: 12px; background: var(--jd-subtle); border-radius: 10px; }
+  .jd-avatar { background: var(--jd-wash); color: var(--jd-accent); width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-weight: 600; flex: none; }
+  .jd-profile strong { display: block; font-size: 13px; font-weight: 600; }
+  .jd-profile span.jd-sub { font-size: 11px; color: var(--jd-secondary); }
+  .jd-profile-end { margin-left: auto; font-size: 10px; color: var(--jd-secondary); white-space: nowrap; }
+  .jd-work-grid { display: grid; grid-template-columns: minmax(0, 1fr) 232px; padding: 14px 24px 16px; gap: 20px; align-items: stretch; }
+  .jd-plot-wrap { min-width: 0; display: flex; flex-direction: column; }
+  .jd-plot { height: 400px; width: 100%; position: relative; touch-action: none; user-select: none; cursor: grab; }
+  .jd-plot:active { cursor: grabbing; }
+  .jd-plot svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .jd-axis-label { fill: var(--jd-secondary); font-size: 12px; font-family: inherit; }
+  .jd-tick { fill: var(--jd-secondary); font-size: 11px; font-family: inherit; }
+  .jd-gridline { stroke: var(--jd-grid); stroke-width: 1; fill: none; opacity: .6; }
+  .jd-edge { stroke: var(--jd-grid); stroke-width: 1; fill: none; opacity: .85; }
+  .jd-plane { fill: var(--jd-subtle); opacity: .65; }
+  .jd-guide { stroke: var(--jd-accent); stroke-width: 1.15; stroke-dasharray: 3 4; fill: none; opacity: .55; }
+  .jd-mark { appearance: none; border: 0; position: absolute; width: 36px; height: 36px; border-radius: 50%; background: none; padding: 0; transform: translate(-50%, -50%); display: grid; place-items: center; z-index: 2; color: var(--jd-surface); font-family: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
+  .jd-mark:focus-visible { outline: 2px solid var(--jd-accent); outline-offset: 2px; }
+  .jd-dot { width: 11px; height: 11px; display: grid; place-items: center; background: var(--jd-other); border-radius: 50%; box-shadow: 0 0 0 3px var(--jd-surface); }
+  .jd-mark.jd-cluster .jd-dot { width: 21px; height: 21px; font-size: 10px; }
+  .jd-mark.jd-active .jd-dot { background: var(--jd-accent); box-shadow: 0 0 0 4px var(--jd-surface), 0 0 0 5px var(--jd-accent); width: 19px; height: 19px; color: var(--jd-surface); }
+  .jd-mark.jd-active { color: var(--jd-surface); }
+  .jd-mark.jd-active.jd-cluster .jd-dot { width: 23px; height: 23px; }
+  .jd-plot-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--jd-secondary); font-size: 11px; padding-top: 8px; }
+  .jd-plot-footer i { display: inline-block; width: 7px; height: 7px; background: var(--jd-other); border-radius: 50%; margin-right: 6px; }
+  .jd-reset { background: var(--jd-surface); border: 1px solid var(--jd-line); border-radius: 7px; padding: 6px 10px; color: var(--jd-secondary); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
+  .jd-reset:focus-visible { outline: 2px solid var(--jd-accent); outline-offset: 2px; }
+  .jd-detail { padding: 16px 14px; background: var(--jd-subtle); border-radius: 12px; min-width: 0; align-self: stretch; }
+  .jd-detail-caption { color: var(--jd-secondary); font-size: 11px; margin-bottom: 8px; }
+  .jd-job-title { font-weight: 600; font-size: 15px; line-height: 1.5; word-break: break-word; }
+  .jd-company { font-size: 11px; color: var(--jd-secondary); margin-top: 3px; word-break: break-word; }
+  .jd-score { margin-top: 12px; display: flex; align-items: baseline; gap: 8px; }
+  .jd-score strong { font-size: 26px; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
+  .jd-score span { font-size: 11px; color: var(--jd-secondary); }
+  .jd-meters { display: grid; gap: 11px; margin: 14px 0 18px; }
+  .jd-meter-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; margin-bottom: 4px; color: var(--jd-secondary); }
+  .jd-meter-head b { font-weight: 500; color: var(--jd-ink); font-variant-numeric: tabular-nums; }
+  .jd-track { display: block; height: 4px; background: var(--jd-line); border-radius: 4px; overflow: hidden; }
+  .jd-track span { display: block; height: 100%; background: var(--jd-accent); border-radius: 4px; }
+  .jd-job-options { border-top: 1px solid var(--jd-line); padding-top: 9px; display: grid; gap: 4px; }
+  .jd-option { display: block; text-align: left; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--jd-secondary); font: inherit; font-size: 11px; min-height: 29px; cursor: pointer; word-break: break-word; }
+  .jd-option:focus-visible { outline: 2px solid var(--jd-accent); outline-offset: 1px; }
+  .jd-option[aria-pressed="true"] { color: var(--jd-ink); background: var(--jd-wash); }
+  .jd-foot { border-top: 1px solid var(--jd-line); margin: 0 24px; padding: 11px 0; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--jd-secondary); font-size: 11px; }
+  .jd-empty { padding: 28px 24px; color: var(--jd-secondary); font-size: 12px; }
+  @media (max-width: 620px) {
+    .jd-header { padding: 18px 16px 14px; }
+    .jd-header h2 { font-size: 19px; }
+    .jd-profile { margin: 0 16px; }
+    .jd-profile-end { display: none; }
+    .jd-work-grid { grid-template-columns: 1fr; padding: 10px 16px 14px; gap: 16px; }
+    .jd-plot { height: 320px; }
+    .jd-detail { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; padding: 14px; }
+    .jd-detail .jd-meters { grid-column: 2; grid-row: 1 / 5; margin: 2px 0; }
+    .jd-detail .jd-job-options { grid-column: 1 / -1; margin-top: 10px; display: flex; flex-wrap: wrap; }
+    .jd-detail .jd-score { margin-top: 6px; }
+    .jd-foot { margin: 0 16px; }
+  }
+  @media (prefers-reduced-motion: no-preference) { .jd-track span { transition: width .22s ease; } }
+</style>
+</head>
+<body>
+<div id="ms-root">
+  <header class="jd-header">
+    <div>
+      <div class="jd-eyebrow">MATCH SPACE</div>
+      <h2>岗位匹配空间</h2>
+      <p id="ms-sub">0 个岗位 · 0 组坐标</p>
+    </div>
+    <span class="jd-demo" id="ms-demo" hidden></span>
+  </header>
+  <div class="jd-profile" id="ms-profile"></div>
+  <div class="jd-work-grid">
+    <div class="jd-plot-wrap">
+      <div class="jd-plot" id="ms-plot" role="img" aria-label="技能、方向、条件三维正交投影"></div>
+      <div class="jd-plot-footer">
+        <span><i></i>同坐标岗位聚合显示</span>
+        <button class="jd-reset" id="ms-reset" type="button">复位视角</button>
+      </div>
+    </div>
+    <aside class="jd-detail" id="ms-detail" aria-live="polite"></aside>
+  </div>
+  <footer class="jd-foot">
+    <span>技能、方向、条件越高，越靠近 100 / 100 / 100 参考角</span>
+    <span>三轴均为适配度</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- Streamlit 组件协议（最小实现，不依赖外部脚本） ----------
+  function send(type, data) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data || {}), "*");
+  }
+  function setValue(value) { send("streamlit:setComponentValue", { value: value, dataType: "json" }); }
+  function setHeight() {
+    const h = Math.ceil(document.getElementById("ms-root").getBoundingClientRect().height);
+    send("streamlit:setFrameHeight", { height: h + 2 });
+  }
+  send("streamlit:componentReady", { apiVersion: 1 });
+
+  // ---------- 状态 ----------
+  let DATA = null;
+  let selectedId = null;
+  let groups = [];
+  let marks = [];
+  let plotEl, svgEl, detailEl;
+  let lastIncoming = null;
+  const cam = { a: 0.72, e: 0.47 };
+
+  function esc(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  function byId(id) {
+    if (!DATA) return null;
+    return DATA.jobs.find(function (j) { return String(j.task_id) === String(id); }) || null;
+  }
+
+  function applyTheme(theme) {
+    const root = document.getElementById("ms-root");
+    Object.keys(theme || {}).forEach(function (key) {
+      root.style.setProperty("--jd-" + key, theme[key]);
+    });
+  }
+
+  function buildGroups() {
+    const map = new Map();
+    (DATA.jobs || []).forEach(function (job) {
+      if (job.x == null || job.y == null || job.z == null) return;
+      const key = [job.x, job.y, job.z].map(function (v) { return Number(v).toFixed(6); }).join("/");
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(job);
+    });
+    groups = Array.from(map.values());
+  }
+
+  function header() {
+    const plotted = (DATA.jobs || []).filter(function (j) { return j.x != null; }).length;
+    document.getElementById("ms-sub").textContent =
+      DATA.jobs.length + " 个岗位 · " + groups.length + " 组坐标";
+    const demo = document.getElementById("ms-demo");
+    demo.textContent = DATA.demo_label || "";
+    demo.hidden = !DATA.demo_label;
+    const p = DATA.profile || {};
+    const bits = [p.identity, p.direction ? "主攻 " + p.direction : "", p.skills ? "技能 " + p.skills : ""]
+      .filter(Boolean);
+    document.getElementById("ms-profile").innerHTML =
+      '<span class="jd-avatar">' + esc(p.initial || "我") + "</span>" +
+      "<div><strong>" + esc(p.name || "未填写") + "</strong>" +
+      '<span class="jd-sub">' + esc(bits.join(" · ") || "资料待补充") + "</span></div>" +
+      '<span class="jd-profile-end">当前求职画像</span>';
+  }
+
+  function meters(job) {
+    const rows = [["技能适配", job.x], ["方向适配", job.y], ["条件适配", job.z]];
+    return '<div class="jd-meters">' + rows.map(function (row) {
+      const known = row[1] != null;
+      const value = known ? Math.round(Number(row[1])) : null;
+      return '<div><div class="jd-meter-head"><span>' + row[0] + "</span><b>" +
+        (known ? value : "未知") + "</b></div>" +
+        '<div class="jd-track"><span style="width:' + (known ? Math.max(0, Math.min(100, value)) : 0) + '%"></span></div></div>';
+    }).join("") + "</div>";
+  }
+
+  function groupOf(job) {
+    if (job == null || job.x == null) return null;
+    return groups.find(function (g) {
+      return g.some(function (q) { return String(q.task_id) === String(job.task_id); });
+    }) || null;
+  }
+
+  function details() {
+    const job = byId(selectedId);
+    if (!job) {
+      detailEl.innerHTML = '<div class="jd-detail-caption">未选择岗位</div>';
+      return;
+    }
+    const group = groupOf(job);
+    const options = group && group.length > 1
+      ? '<div class="jd-job-options">' + group.map(function (q) {
+          const label = q.name + (q.company ? " · " + q.company : "");
+          return '<button type="button" class="jd-option" data-job="' + esc(q.task_id) +
+            '" aria-pressed="' + (String(q.task_id) === String(job.task_id)) + '">' + esc(label) + "</button>";
+        }).join("") + "</div>"
+      : "";
+    const score = job.score == null ? "未知" : Number(job.score).toFixed(3);
+    detailEl.innerHTML =
+      '<div class="jd-detail-caption">已选岗位 · ' + esc(job.grade || "—") + " 级</div>" +
+      '<h3 class="jd-job-title">' + esc(job.name || "未命名岗位") + "</h3>" +
+      '<div class="jd-company">' + esc(job.company || "单位未知") + " · " + esc(job.salary || "薪资未知") + "</div>" +
+      '<div class="jd-score"><strong>' + esc(score) + "</strong><span>匹配分</span></div>" +
+      meters(job) +
+      options;
+  }
+
+  function draw() {
+    if (!DATA || !plotEl || !plotEl.clientWidth) return;
+    const w = plotEl.clientWidth, h = plotEl.clientHeight;
+    svgEl.setAttribute("viewBox", "0 0 " + w + " " + h);
+    const sc = Math.min((w - 76) / 145, (h - 80) / 155);
+    const cx = w * 0.5, cy = h * 0.51;
+    const p = function (x, y, z) {
+      const X = x - 50, Y = y - 50, Z = z - 50;
+      return [cx + sc * (X * Math.cos(cam.a) - Y * Math.sin(cam.a)),
+              cy - sc * (Z * Math.cos(cam.e) + (X * Math.sin(cam.a) + Y * Math.cos(cam.a)) * Math.sin(cam.e))];
+    };
+    const poly = function (points, cls) {
+      return '<polygon class="' + cls + '" points="' + points.map(function (t) { return p(t[0], t[1], t[2]).join(","); }).join(" ") + '"/>';
+    };
+    const line = function (v1, v2, cls) {
+      const q = p(v1[0], v1[1], v1[2]), r = p(v2[0], v2[1], v2[2]);
+      return '<path class="' + cls + '" d="M' + q.join(",") + "L" + r.join(",") + '"/>';
+    };
+    const text = function (point, label, dx, dy, anchor, cls) {
+      const q = p(point[0], point[1], point[2]);
+      return '<text class="' + (cls || "jd-axis-label") + '" x="' + (q[0] + (dx || 0)) +
+        '" y="' + (q[1] + (dy || 0)) + '" text-anchor="' + (anchor || "middle") + '">' + label + "</text>";
+    };
+
+    let s = poly([[0, 0, 0], [100, 0, 0], [100, 100, 0], [0, 100, 0]], "jd-plane");
+    [0, 50, 100].forEach(function (t) {
+      s += line([t, 0, 0], [t, 100, 0], "jd-gridline") + line([0, t, 0], [100, t, 0], "jd-gridline");
+    });
+    const edges = [
+      [[0, 0, 0], [100, 0, 0]], [[0, 0, 0], [0, 100, 0]], [[0, 0, 0], [0, 0, 100]],
+      [[100, 0, 0], [100, 100, 0]], [[100, 0, 0], [100, 0, 100]], [[0, 100, 0], [100, 100, 0]],
+      [[0, 100, 0], [0, 100, 100]], [[0, 0, 100], [100, 0, 100]], [[0, 0, 100], [0, 100, 100]],
+      [[100, 100, 0], [100, 100, 100]], [[100, 0, 100], [100, 100, 100]], [[0, 100, 100], [100, 100, 100]]
+    ];
+    edges.forEach(function (edge) { s += line(edge[0], edge[1], "jd-edge"); });
+
+    const job = byId(selectedId);
+    if (job && job.x != null) s += line([job.x, job.y, job.z], [job.x, job.y, 0], "jd-guide");
+
+    [0, 50, 100].forEach(function (t) {
+      s += text([t, 0, 0], t, 0, 17, "middle", "jd-tick");
+      if (t) {
+        s += text([0, t, 0], t, -11, 6, "end", "jd-tick");
+        s += text([0, 0, t], t, -12, 4, "end", "jd-tick");
+      }
+    });
+    s += text([100, 0, 0], "技能适配", 7, 36);
+    s += text([0, 100, 0], "方向适配", -5, 29);
+    s += text([0, 0, 100], "条件适配", -7, -20);
+    s += text([100, 100, 100], "100 / 100 / 100", 0, -23, "middle", "jd-tick");
+    svgEl.innerHTML = s;
+
+    groups.forEach(function (group, index) {
+      const mark = marks[index];
+      if (!mark) return;
+      const q = p(group[0].x, group[0].y, group[0].z);
+      mark.style.left = q[0] + "px";
+      mark.style.top = q[1] + "px";
+      const active = group.some(function (q2) { return String(q2.task_id) === String(selectedId); });
+      mark.classList.toggle("jd-active", active);
+      mark.setAttribute("aria-pressed", active ? "true" : "false");
+      mark.style.zIndex = active ? "5" : "2";
+    });
+  }
+
+  function rebuildMarks() {
+    // 清掉旧标记（保留 svg）
+    Array.prototype.slice.call(plotEl.querySelectorAll(".jd-mark")).forEach(function (el) { el.remove(); });
+    marks = groups.map(function (group, index) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "jd-mark" + (group.length > 1 ? " jd-cluster" : "");
+      btn.dataset.group = String(index);
+      btn.setAttribute("aria-label",
+        group.map(function (j) { return j.name; }).join("、") + "；" + group.length +
+        " 个岗位；技能 " + Math.round(group[0].x) + "、方向 " + Math.round(group[0].y) +
+        "、条件 " + Math.round(group[0].z));
+      btn.innerHTML = '<span class="jd-dot">' + (group.length > 1 ? group.length : "") + "</span>";
+      btn.addEventListener("click", function () {
+        select(String(group[0].task_id));
+      });
+      plotEl.appendChild(btn);
+      return btn;
+    });
+  }
+
+  function select(taskId) {
+    if (!byId(taskId)) return;
+    selectedId = String(taskId);
+    details();
+    draw();
+    setValue({ task_id: selectedId });
+  }
+
+  function render(args) {
+    if (!args || !args.jobs) return;
+    DATA = args;
+    applyTheme(args.theme);
+    buildGroups();
+    header();
+    if (!plotEl) {
+      plotEl = document.getElementById("ms-plot");
+      detailEl = document.getElementById("ms-detail");
+      svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svgEl.setAttribute("role", "img");
+      plotEl.appendChild(svgEl);
+      document.addEventListener("click", function (ev) {
+        const option = ev.target.closest && ev.target.closest("[data-job]");
+        if (option) select(option.dataset.job);
+      });
+      document.getElementById("ms-reset").addEventListener("click", function () {
+        cam.a = 0.72; cam.e = 0.47; draw();
+      });
+      let drag = null;
+      plotEl.addEventListener("pointerdown", function (ev) {
+        if (ev.target.closest("button")) return;
+        drag = { x: ev.clientX, y: ev.clientY, a: cam.a, e: cam.e };
+        try { plotEl.setPointerCapture(ev.pointerId); } catch (e) {}
+      });
+      plotEl.addEventListener("pointermove", function (ev) {
+        if (!drag) return;
+        cam.a = Math.max(0.15, Math.min(1.42, drag.a + (ev.clientX - drag.x) * 0.006));
+        cam.e = Math.max(0.20, Math.min(0.90, drag.e - (ev.clientY - drag.y) * 0.004));
+        draw();
+      });
+      plotEl.addEventListener("pointerup", function () { drag = null; });
+      plotEl.addEventListener("pointercancel", function () { drag = null; });
+      new ResizeObserver(function () { draw(); setHeight(); }).observe(plotEl);
+    }
+    // 选中态：Python 侧显式变化时才采纳（避免点击后因旧参数把选择回滚）
+    const incoming = args.selected != null ? String(args.selected) : null;
+    if (incoming !== lastIncoming) {
+      if (incoming && byId(incoming)) selectedId = incoming;
+      lastIncoming = incoming;
+    }
+    if (!byId(selectedId)) {
+      const first = (args.jobs || []).find(function (j) { return j.x != null; }) || (args.jobs || [])[0];
+      selectedId = first ? String(first.task_id) : null;
+    }
+    rebuildMarks();
+    details();
+    draw();
+    setHeight();
+    requestAnimationFrame(setHeight);
+  }
+
+  window.addEventListener("message", function (event) {
+    const data = event.data || {};
+    if (data.type === "streamlit:render") render(data.args);
+  });
+  window.addEventListener("resize", function () { draw(); setHeight(); });
+  setInterval(setHeight, 1500); // 兜底：内容高度变化时同步 iframe 高度
+})();
+</script>
+</body>
+</html>

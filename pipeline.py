@@ -35,6 +35,25 @@ def store_user(user_data):
         return user_id
 
 
+def latest_user_data():
+    """最近一次保存的用户信息（用于刷新/重开页面后回填表单）。没有记录返回 None。"""
+    with db.get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM user_records ORDER BY user_id DESC LIMIT 1").fetchone()
+        if row is None:
+            return None
+        exps = [json.loads(r["fields"]) for r in conn.execute(
+            "SELECT fields FROM experience_items WHERE user_id=? ORDER BY exp_index",
+            (row["user_id"],))]
+    return {
+        "user_id": row["user_id"],
+        "l0": json.loads(row["l0"]),
+        "l1": json.loads(row["l1"]),
+        "l3": json.loads(row["l3"]),
+        "l2": exps,
+    }
+
+
 def run_full_pipeline(user_data, llm=None, jobs=None):
     """执行完整流程：采集→画像→匹配→建任务→生成→准备投递材料。
 

@@ -1,0 +1,5 @@
+[theme]
+# 明确主题基线：避免跟随浏览器/系统外观，导致自定义 CSS 与原生控件一亮一暗。
+# 需要暗色时：`.\.venv\Scripts\python.exe start.py --theme.base dark` 或改这里。
+base = "light"
+primaryColor = "#4F46E5"

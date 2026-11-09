@@ -50,7 +50,8 @@ print("=== ③ 模块可干净导入 ===")
 _MODULES = ["schema", "config", "db", "formulas", "embedding", "user_profile", "login_status",
             "matching", "tasks", "verification", "recommend", "generation",
             "feedback", "delivery", "pipeline", "loop", "platforms", "session",
-            "crawler", "form_filler", "llm", "logging_setup", "theme", "viz"]
+            "crawler", "form_filler", "llm", "logging_setup", "theme", "viz", "persona",
+            "workbench"]
 _failed = []
 for m in _MODULES:
     try:

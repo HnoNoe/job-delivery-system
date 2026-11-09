@@ -141,6 +141,8 @@ def main(argv=None) -> int:
         "--server.address=127.0.0.1",
         "--server.fileWatcherType=none",
         "--browser.gatherUsageStats=false",
+        "--theme.base=light",
+        "--theme.primaryColor=#4F46E5",
     ]
     return stcli.main()
 

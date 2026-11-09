@@ -22,7 +22,7 @@ def search_logged_in_platforms(platform_keys, keyword, city="", pages=1):
         if not p:
             logs.append((k, "未知平台"))
             continue
-        if session.is_active(k):
+        if session.can_search(k):
             try:
                 got = (crawler.search_via_requests(k, keyword, city=city, pages=pages) if k == "mock"
                        else session.dpage_search(k, keyword, city=city, pages=pages))
@@ -30,7 +30,7 @@ def search_logged_in_platforms(platform_keys, keyword, city="", pages=1):
                 logs.append((k, "检索失败：%s" % exc))
                 continue
         else:
-            logs.append((k, "未登录，跳过"))
+            logs.append((k, "没有可用登录态，跳过"))
             continue
         jobs.extend(got)
         if got:

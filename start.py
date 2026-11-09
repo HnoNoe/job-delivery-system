@@ -110,7 +110,8 @@ def main(argv=None):
     if args.port and port != args.port:
         print('端口 %d 已占用，改用 %d。' % (args.port, port))
     cmd = [python, '-m', 'streamlit', 'run', str(BASE / 'app.py'), '--server.headless', 'true',
-           '--server.port', str(port), '--server.address', '127.0.0.1', '--browser.gatherUsageStats', 'false']
+           '--server.port', str(port), '--server.address', '127.0.0.1', '--browser.gatherUsageStats', 'false',
+           '--theme.base', 'light', '--theme.primaryColor', '#4F46E5']
     if args.foreground:
         print('启动：' + url)
         return subprocess.call(cmd, cwd=str(BASE))
