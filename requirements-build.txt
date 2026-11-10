@@ -1,1 +1,2 @@
-pyinstaller>=6.11
+# 兼容入口：等价于 pip install ".[build]"，真实声明见 pyproject.toml
+.[build]

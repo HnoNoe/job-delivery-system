@@ -113,7 +113,7 @@ python start.py --foreground            # 前台运行，Ctrl+C 停止
 
 安全模式下「查看投递材料」保持待投递；完成手动发送后再点「确认已手动投递」。HTTP 超时、浏览器提交未确认时进入「待核实」，核对平台记录后再确认，避免重复发送。
 
-`requirements-tested.txt` 保存本轮 Windows/Python 3.13 干净环境的依赖快照，可用于复现该环境；跨平台安装优先使用 `requirements.txt`。
+依赖的唯一事实来源是 `pyproject.toml`：核心依赖 `pip install .`，可选组 `pip install ".[browser]"` / `".[build]"` / `".[ai]"`。`requirements*.txt` 是指向前者的兼容入口，原有命令全部照常可用。`requirements-tested.txt` 保存本轮 Windows/Python 3.13 干净环境的依赖快照，可用于复现该环境。
 
 ## 便携版（单文件 exe）
 

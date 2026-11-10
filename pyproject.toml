@@ -1,0 +1,47 @@
+# =====================================================================
+# 依赖的唯一事实来源（single source of truth）。
+# 路人只需要一句话：pip install .
+# 可选组：pip install ".[browser]"（登录/动态采集/自动填表）
+#         pip install ".[build]"（打包 exe）  pip install ".[ai]"（真实语义/生成式 AI）
+# requirements*.txt 只是指向本文件的兼容入口，已测试的锁定快照见 requirements-tested.txt。
+# =====================================================================
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "job-delivery-system"
+version = "0.1.0"
+description = "面向大学毕业生的求职批量投递系统：画像建模、岗位匹配、批量投递与反馈闭环"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "streamlit>=1.46,<2",
+    "numpy>=1.24,<3",
+    "pandas>=2.0,<4",
+    "plotly>=5.18,<8",
+    "reportlab>=4.0,<6",
+    "beautifulsoup4>=4.12,<5",
+    "pdfplumber>=0.10,<1",
+    "requests>=2.31,<3",
+]
+
+[project.optional-dependencies]
+# 浏览器登录 / 动态采集 / 自动填表（主路径用 DrissionPage）
+browser = [
+    "DrissionPage>=4.1,<5",
+    "selenium>=4.15,<5",
+    "browser-cookie3>=0.19,<1",
+]
+# 打包单文件便携版 exe
+build = ["pyinstaller>=6.11"]
+# 真实语义嵌入与生成式 AI（未安装时自动回退到离线哈希嵌入 / 字段约束桩）
+ai = [
+    "sentence-transformers>=2.2",
+    "openai>=1.0",
+]
+
+# 纯脚本项目（平铺模块，不做包发布）：显式声明无模块，避免 setuptools 自动发现报错
+[tool.setuptools]
+py-modules = []

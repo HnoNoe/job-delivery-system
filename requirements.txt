@@ -1,13 +1,4 @@
-streamlit>=1.46,<2
-numpy>=1.24,<3
-pandas>=2.0,<4
-plotly>=5.18,<8
-reportlab>=4.0,<6
-beautifulsoup4>=4.12,<5
-pdfplumber>=0.10,<1
-requests>=2.31,<3
-# 浏览器登录/动态采集/自动填表：另装 requirements-browser.txt
-# 可选：真实语义嵌入（未安装时自动回退到离线哈希嵌入）
-# sentence-transformers>=2.2
-# 可选：真实生成式AI（未安装时使用字段约束桩）
-# openai>=1.0
+# 兼容入口：依赖的唯一事实来源已收敛到 pyproject.toml，本文件等价于 pip install .
+# 浏览器登录/动态采集/自动填表：pip install -r requirements-browser.txt（即 .[browser]）
+# 可选：真实语义嵌入 / 生成式 AI 见 pyproject.toml 的 [ai] 组
+.
