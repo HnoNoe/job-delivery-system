@@ -1,8 +1,0 @@
-README.md
-pyproject.toml
-job_delivery_system.egg-info/PKG-INFO
-job_delivery_system.egg-info/SOURCES.txt
-job_delivery_system.egg-info/dependency_links.txt
-job_delivery_system.egg-info/requires.txt
-job_delivery_system.egg-info/top_level.txt
-tests/test_regressions.py

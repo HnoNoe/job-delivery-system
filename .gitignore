@@ -19,3 +19,6 @@ zhaopin_crawler/browser_data/
 zhaopin_crawler/output/
 zhaopin_crawler/raw/
 zhaopin_crawler/*.log
+
+# pip 构建产物
+*.egg-info/
