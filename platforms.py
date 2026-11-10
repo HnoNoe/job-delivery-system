@@ -28,6 +28,7 @@ PLATFORMS = {
         },
         "login_check": {"type": "url_not_contains", "value": "web/user"},
         "headless_ok": True,
+        "demo_scan_text": "模拟登录成功",
         "api_url": "http://127.0.0.1:5001/wapi/zpgeek/search/joblist.json?query={keyword}&city={city}&page={page}&pageSize=30",
         "api_listen_kw": "joblist.json",
         "api_jobs_path": "zpData.jobList",

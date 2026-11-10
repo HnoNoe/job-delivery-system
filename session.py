@@ -722,6 +722,97 @@ def dpage_finish(platform_key):
     return True, "已保存 %d 个 cookie，登录成功" % n
 
 
+# ---------------------------------------------------------------- 网页内扫码登录
+# 浏览器在屏幕外隐藏运行（非无头，保留指纹），二维码截图实时回传到 Web 界面，
+# 用户不需要离开页面、也不会弹出浏览器窗口。
+
+def qr_login_start(platform_key):
+    """在隐藏浏览器里打开登录页并截取首张二维码。返回 (ok, msg)。"""
+    p = platforms.get(platform_key)
+    if not p:
+        return False, "未知平台：%s" % platform_key
+    try:
+        page = _get_page(platform_key, hidden=True)
+    except RuntimeError as exc:
+        return False, str(exc)
+    try:
+        page.get(p["login_url"])  # 每次开始都刷新，保证拿到的是有效新码
+        page.wait(2)
+    except Exception as exc:
+        return False, "无法打开登录页：%s" % exc
+    ok, payload = qr_login_shot(platform_key)
+    if not ok:
+        return True, "已打开登录页，二维码加载中（%s）" % payload
+    return True, "二维码已就绪"
+
+
+def qr_login_shot(platform_key, reload=False):
+    """截取当前登录页二维码，返回 (ok, 图片路径 | 错误信息)。
+
+    reload=True 时重新加载登录页（二维码过期后换新码）。
+    """
+    page = _DPAGES.get(platform_key)
+    if not page or not _page_alive(page):
+        return False, "登录会话不存在，请重新开始扫码"
+    p = platforms.get(platform_key)
+    if reload:
+        try:
+            page.get(p["login_url"])
+            page.wait(2)
+        except Exception:
+            pass
+    name = "%s_qr_live.png" % platform_key
+    shot = SESSION_DIR / name
+    try:
+        ele = page.ele(p.get("login_qr_selector", "img, canvas"), timeout=3)
+        if ele:
+            ele.get_screenshot(path=str(SESSION_DIR), name=name)
+        else:
+            page.get_screenshot(path=str(SESSION_DIR), name=name)  # 兜底整页
+        return True, str(shot)
+    except Exception:
+        try:
+            page.get_screenshot(path=str(SESSION_DIR), name=name)
+            return True, str(shot)
+        except Exception as exc:
+            return False, "截图失败：%s" % exc
+
+
+def qr_login_status(platform_key):
+    """只读检测是否已扫码登录（不等待、不保存、任何异常都视为未登录）。"""
+    page = _DPAGES.get(platform_key)
+    if not page:
+        return False
+    p = platforms.get(platform_key)
+    cfg = p.get("login_check", {})
+    try:
+        if cfg.get("type") == "url_not_contains":
+            return cfg["value"] not in page.url
+        if cfg.get("type") == "cookie":
+            return any(c.get("name") == cfg["name"] for c in page.cookies())
+    except Exception:
+        return False
+    return False
+
+
+def qr_login_demo_scan(platform_key):
+    """演示站专用：替用户点「模拟登录」按钮，等价于手机扫码确认。"""
+    p = platforms.get(platform_key)
+    text = (p or {}).get("demo_scan_text")
+    page = _DPAGES.get(platform_key)
+    if not (page and text):
+        return False, "仅演示站支持模拟扫码"
+    try:
+        btn = page.ele("text:%s" % text, timeout=3)
+        if not btn:
+            return False, "未找到模拟登录按钮"
+        btn.click()
+        page.wait(1)
+        return True, "已模拟扫码"
+    except Exception as exc:
+        return False, "模拟扫码失败：%s" % exc
+
+
 def dpage_search(platform_key, keyword, city="", pages=1):
     """正确做法：用 DrissionPage 旁听浏览器自己发的搜索接口响应，拿明文岗位数据。
 

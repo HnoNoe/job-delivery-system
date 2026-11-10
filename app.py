@@ -47,6 +47,65 @@ def _login_report():
     return data
 
 
+# ---------------- 网页内扫码登录（二维码实时弹窗） ----------------
+import inspect as _inspect
+
+# run_every 周期刷新需要 streamlit>=1.47；旧版回退为手动刷新按钮
+_FRAGMENT_EVERY = hasattr(st, "fragment") and "run_every" in _inspect.signature(st.fragment).parameters
+
+
+def _rerun_app():
+    """从 fragment/弹窗里触发整页重跑（旧版本没有 scope 参数时降级）。"""
+    try:
+        st.rerun(scope="app")
+    except TypeError:
+        st.rerun()
+
+
+@st.dialog("📱 扫码登录")
+def _qr_dialog(pk):
+    """二维码实时弹窗：隐藏浏览器在后台跑，本弹窗每 2 秒自动换码并检测登录。"""
+    p = platforms.get(pk)
+
+    def _live():
+        if session.qr_login_status(pk):
+            ok, msg = session.dpage_finish(pk)
+            st.session_state.pop("qr_login_pk", None)
+            st.session_state.pop("login_report", None)
+            st.session_state["_login_flash"] = (
+                "%s：%s" % (p["name"], msg) if ok
+                else "%s：登录检测异常，请查看侧栏状态" % p["name"])
+            _rerun_app()
+            return
+        ok, payload = session.qr_login_shot(pk)
+        if ok:
+            try:
+                with open(payload, "rb") as _f:
+                    st.image(_f.read(), caption="用手机 %s App 扫码" % p["name"], width=260)
+            except OSError:
+                st.info("二维码加载中…")
+        else:
+            st.warning(payload)
+
+    st.caption("二维码每 2 秒自动刷新；登录成功后本窗口自动关闭。")
+    if _FRAGMENT_EVERY:
+        st.fragment(_live, run_every=2)()
+    else:
+        _live()
+        st.button("🔄 刷新二维码 / 检测登录", key="qr_manual_refresh")
+
+    c1, c2 = st.columns(2)
+    if c1.button("♻️ 二维码过期？换一张", key="qr_reload"):
+        session.qr_login_shot(pk, reload=True)
+        st.rerun()
+    if c2.button("❌ 取消", key="qr_cancel"):
+        st.session_state.pop("qr_login_pk", None)
+        _rerun_app()
+    if p.get("demo_scan_text"):
+        if st.button("🤖 演示站专用：模拟手机扫码", key="qr_demo_scan"):
+            session.qr_login_demo_scan(pk)
+            st.rerun()
+
 def _full_width_kwargs() -> dict:
     """表格全宽渲染参数（跨 Streamlit 版本自适应）。
 
@@ -407,7 +466,7 @@ if selected:
             st.markdown("🟡 " + p["name"] + "（有本地登录目录，未验证；若检索提示失效请重新扫码）")
         else:
             st.markdown("⚪ " + p["name"] + "（未登录）")
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     if c1.button("🌐 打开登录页", key="btn_real_open"):
         for k in selected:
             ok, msg = session.dpage_open(k)
@@ -431,10 +490,28 @@ if selected:
             st.rerun()
         for _line in failed:
             st.warning(_line)
+    with c3:
+        _qr_target = selected[0] if len(selected) == 1 else st.selectbox(
+            "扫码平台", selected,
+            format_func=lambda _k: platforms.get(_k)["name"],
+            key="qr_pk_choice", label_visibility="collapsed")
+        if st.button("📱 网页内扫码", key="btn_qr_open",
+                     help="浏览器在后台隐藏运行不弹窗，二维码实时显示在本页弹窗里"):
+            with st.spinner("正在后台打开登录页…"):
+                _ok, _msg = session.qr_login_start(_qr_target)
+            if _ok:
+                st.session_state["qr_login_pk"] = _qr_target
+                st.rerun()
+            else:
+                st.error("%s：%s" % (platforms.get(_qr_target)["name"], _msg))
 
 logged_in = [k for k in selected if session.can_search(k)]
 if logged_in:
     st.success("🔍 可用于检索的平台：" + "、".join(platforms.get(k)["name"] for k in logged_in))
+
+# 网页内扫码弹窗（点「📱 网页内扫码」后触发； fragment 每 2 秒自动刷新二维码）
+if st.session_state.get("qr_login_pk"):
+    _qr_dialog(st.session_state["qr_login_pk"])
 
 # ================= 步骤③ 检索岗位 =================
 st.markdown("---")
