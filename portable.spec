@@ -54,7 +54,16 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["tests", "pytest", "matplotlib", "tkinter"],
+    excludes=["tests", "pytest", "matplotlib", "tkinter",
+              # PIL.ImageQt 等会把 Qt 绑定误拖进依赖图，分析 Qt DLL 极慢且可能卡死；本应用不用 Qt
+              "PyQt5", "PyQt6", "PySide2", "PySide6",
+              # 便携版不内置深度学习栈（未装 sentence-transformers 时应用自动回退哈希嵌入），
+              # 否则 torch 数 GB 二进制会让打包体积与时间爆炸
+              "torch", "torchaudio", "torchvision", "transformers", "sentence_transformers",
+              # 科学计算重包在本项目无引用（pandas 的可选加速链会误拖入）
+              "numba", "llvmlite", "scipy", "sklearn",
+              # altair/narwhals 的可选后端与图像处理链，本项目无引用，单 polars 就有 150MB+
+              "polars", "cv2"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)
