@@ -321,7 +321,7 @@ def _job_features():
     idx = np.where(np.isnan(F))
     F[idx] = np.take(col_mean, idx[1])
     mu, sd = F.mean(axis=0), F.std(axis=0) + 1e-9
-    return (F - mu) / sd, metas
+    return (F - mu) / sd, metas, F
 
 
 def fig5():
@@ -329,7 +329,7 @@ def fig5():
     from matplotlib.lines import Line2D
     from matplotlib.ticker import MaxNLocator
     rng = np.random.default_rng(42)
-    Fs, metas = _job_features()
+    Fs, metas, Fraw = _job_features()
     n = len(Fs)
 
     def kmeans(P, k):
@@ -372,7 +372,39 @@ def fig5():
 
     PALETTE = ["#4F46E5", "#E11D48", "#D97706", "#0D9488", "#7C3AED"]
     fig = plt.figure(figsize=(12, 6.75), dpi=200)
-    ax = fig.add_axes([0.02, 0.04, 0.71, 0.81], projection="3d")
+
+    # ---- 主成分的人话解释：看该主成分在原始特征上的载荷 ----
+    kw_list = ["Python", "Java", "前端", "算法", "数据", "测试", "运维", "C++"]
+    groups = [("薪资水平", [0]), ("学历门槛", [1]), ("经验要求", [2]),
+              ("技能广度", [3]), ("技术栈", list(range(4, 12)))]
+    _, _, vt = np.linalg.svd(Fs - Fs.mean(axis=0), full_matrices=False)
+    pc_names = []
+    for d in range(3):
+        ld = np.abs(vt.T[:, d])
+        gname = max(groups, key=lambda g: ld[g[1]].mean())[0]
+        pc_names.append(gname)
+
+    # ---- 族名：按均薪、经验、技术栈签名自动命名 ----
+    def cluster_name(j):
+        sel = Fraw[lab == j]
+        cnt = int((lab == j).sum())
+        sal = float(sel[:, 0].mean())
+        exp = float(sel[:, 2].mean())
+        hits = sel[:, 4:].mean(axis=0)
+        top_kw = kw_list[int(hits.argmax())] if hits.max() > 0.15 else ""
+        if cnt <= 5:
+            return "离群岗位族", top_kw, sal
+        sal_tag = "高薪" if sal >= 20 else ("中薪" if sal >= 11 else "基础")
+        exp_tag = "资深" if exp >= 0.5 else ("经验" if exp >= 0.25 else "起步")
+        return "%s%s族" % (sal_tag, exp_tag), top_kw, sal
+
+    fig.text(0.5, 0.955, "岗位画像：检索岗位在特征空间中自动聚类",
+             ha="center", va="top", fontsize=23, color=INK, fontweight="bold")
+    fig.text(0.5, 0.885,
+             "统一字段特征经 K 均值聚类（K=5，轮廓系数 %.2f）与主成分分析（PCA）投影至三维" % best_sil,
+             ha="center", va="top", fontsize=15, color=SLATE)
+
+    ax = fig.add_axes([0.09, 0.04, 0.60, 0.78], projection="3d")
 
     for j in range(best_k):
         P = proj[lab == j]
@@ -392,28 +424,27 @@ def fig5():
             ax.plot_surface(ell[0].reshape(xs.shape), ell[1].reshape(ys.shape),
                             ell[2].reshape(zs.shape), color=col, alpha=0.09,
                             linewidth=0)
-        ax.scatter(P[:, 0], P[:, 1], P[:, 2], s=34, c=col, alpha=0.62,
+        ax.scatter(P[:, 0], P[:, 1], P[:, 2], s=40, c=col, alpha=0.66,
                    edgecolors="white", linewidths=0.4, depthshade=False)
 
-    pad = 0.035 * np.maximum(np.ptp(proj, axis=0), 0.5)
-    ax.set_xlim(proj[:, 0].min() - pad[0], proj[:, 0].max() + pad[0])
-    ax.set_ylim(proj[:, 1].min() - pad[1], proj[:, 1].max() + pad[1])
-    ax.set_zlim(proj[:, 2].min() - pad[2], proj[:, 2].max() + pad[2])
+    lo = np.percentile(proj, 1, axis=0)
+    hi = np.percentile(proj, 99, axis=0)
+    cen = (lo + hi) / 2
+    half = (hi - lo) / 2 * 1.14
+    ax.set_xlim(cen[0] - half[0], cen[0] + half[0])
+    ax.set_ylim(cen[1] - half[1], cen[1] + half[1])
+    ax.set_zlim(cen[2] - half[2], cen[2] + half[2])
     try:
-        ax.set_box_aspect((1.75, 1.15, 0.9))
+        ax.set_box_aspect((1.55, 1.2, 0.95))
     except Exception:
         pass
-    ax.set_xlabel("第一主成分（%.0f%%）" % (var[0] * 100), color=SLATE, labelpad=10, fontsize=17)
-    ax.set_ylabel("第二主成分（%.0f%%）" % (var[1] * 100), color=SLATE, labelpad=10, fontsize=17)
-    ax.set_zlabel("第三主成分（%.0f%%）" % (var[2] * 100), color=SLATE, labelpad=10, fontsize=17)
-    ax.tick_params(labelsize=13, colors=MUTED)
+    ax.set_xlabel("第一主成分（%s方向）" % pc_names[0], color=SLATE, labelpad=10, fontsize=15)
+    ax.set_ylabel("第二主成分（%s方向）" % pc_names[1], color=SLATE, labelpad=10, fontsize=15)
+    ax.set_zlabel("第三主成分（%s方向）" % pc_names[2], color=SLATE, labelpad=10, fontsize=15)
+    ax.tick_params(labelsize=12, colors=MUTED)
     for _axis in (ax.xaxis, ax.yaxis, ax.zaxis):
-        _axis.set_major_locator(MaxNLocator(5))
-    _titles(ax, "岗位画像：检索岗位在特征空间中自动聚类",
-            "统一字段特征经 K 均值聚类（K=5，轮廓系数 %.2f）与主成分分析（PCA）投影至三维"
-            % best_sil,
-            main_size=23, sub_size=16, pad=34)
-    ax.view_init(elev=15, azim=-58)
+        _axis.set_major_locator(MaxNLocator(4))
+    ax.view_init(elev=17, azim=-60)
     for pane in (ax.xaxis, ax.yaxis, ax.zaxis):
         pane.pane.set_alpha(0.02)
         pane._axinfo["grid"].update(color="#EEF2F7", linewidth=0.7)
@@ -421,17 +452,16 @@ def fig5():
     handles = []
     for j in range(best_k):
         cnt = int((lab == j).sum())
-        mem = [metas[i] for i in range(n) if lab[i] == j]
-        sal_vals = [m[2] for m in mem if not np.isnan(m[2])]
-        sal_txt = " · 均薪%.0fK" % (sum(sal_vals) / len(sal_vals)) if sal_vals else ""
+        name, top_kw, sal = cluster_name(j)
+        kw_txt = "（%s）" % top_kw if top_kw else ""
         handles.append(Line2D([0], [0], marker="o", color="none",
-                              markerfacecolor=PALETTE[j % len(PALETTE)], markersize=13,
-                              label="族%d（%d 个）%s" % (j + 1, cnt, sal_txt)))
-    fig.legend(handles=handles, loc="center left", bbox_to_anchor=(0.745, 0.58),
-               frameon=False, fontsize=14, labelspacing=1.5)
-    fig.text(0.755, 0.10,
-             "数据：Boss 直聘登录态检索，去重入库\n%d 个真实岗位；特征取自统一字段\n（薪资、学历、经验、技能、关键词）" % n,
-             fontsize=11.5, color=MUTED, linespacing=1.6)
+                              markerfacecolor=PALETTE[j % len(PALETTE)], markersize=12,
+                              label="%s%s %d 个 · 均薪%.0fK" % (name, kw_txt, cnt, sal)))
+    fig.legend(handles=handles, loc="center left", bbox_to_anchor=(0.705, 0.55),
+               frameon=False, fontsize=12.5, labelspacing=1.5, handletextpad=0.6)
+    fig.text(0.705, 0.11,
+             "数据：Boss 直聘登录态检索，去重入库 %d 个真实岗位\n特征取自统一字段：薪资、学历、经验、技能、关键词" % n,
+             fontsize=10, color=MUTED, linespacing=1.7)
     fig.savefig(os.path.join(OUT, "fig5_cluster3d.png"))
     plt.close(fig)
     print("saved fig5 (K=%d, silhouette=%.2f, n=%d)" % (best_k, best_sil, n))
