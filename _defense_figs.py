@@ -186,29 +186,29 @@ def fig3():
 
     origin = np.array([0.0, 0.0])
     uvec = np.array([1.0, 0.0])
-    jobs = [("岗位A", 16, ACCENT, "cosθ = 0.96", "强匹配"),
-            ("岗位B", 42, GOLD, "cosθ = 0.74", None),
-            ("岗位C", 78, MUTED, "cosθ = 0.21", "低于阈值，淘汰")]
+    jobs = [("岗位A", 16, ACCENT, "cosθ = 0.96 → 强匹配", (0.50, 0.27)),
+            ("岗位B", 42, GOLD, "cosθ = 0.74", (0.25, 0.44)),
+            ("岗位C", 78, MUTED, "cosθ = 0.21 → 淘汰", (0.42, 0.60))]
     ax.add_patch(FancyArrowPatch(origin, uvec, arrowstyle="-|>", mutation_scale=28,
                                  color=PRIMARY, linewidth=3.4, zorder=4))
     ax.text(0.42, -0.11, "用户表示向量 u（式一）", color=PRIMARY, fontsize=16.5,
             fontweight="bold")
-    for name, deg, color, note, verdict in jobs:
+    for name, deg, color, note, note_xy in jobs:
         v = np.array([np.cos(np.radians(deg)), np.sin(np.radians(deg))]) * 0.92
         ax.add_patch(FancyArrowPatch(origin, v, arrowstyle="-|>", mutation_scale=20,
                                      color=color, linewidth=2.2, zorder=3, alpha=0.9))
         ax.text(v[0] * 1.12, v[1] * 1.12, name, color=color, fontsize=16,
                 fontweight="bold", ha="center")
-        lb = note + (" → " + verdict if verdict else "")
-        ax.annotate(lb, v * 0.58, xytext=(0, 12), textcoords="offset points",
-                    color=color, fontsize=13.5, ha="center",
-                    bbox=dict(fc="white", ec="none", alpha=0.85, pad=1.0))
+        # 标注放在箭头之间的空白区，绝不压在箭头线上
+        ax.text(note_xy[0], note_xy[1], note, color=color, fontsize=13.5,
+                ha="center", va="center", zorder=5,
+                bbox=dict(fc="white", ec="none", alpha=1.0, pad=1.5))
     th = np.linspace(0, np.radians(42), 40)
     ax.plot(0.3 * np.cos(th), 0.3 * np.sin(th), color=SLATE, linewidth=1.4, linestyle="--")
     ax.text(0.35, 0.05, "θ", fontsize=19, color=SLATE, style="italic")
     ax.set_xlim(-0.15, 1.4); ax.set_ylim(-0.34, 1.18)
     ax.set_xticks([]); ax.set_yticks([])
-    ax.text(-0.1, -0.26, "夹角越小，岗位与用户的匹配程度越高",
+    ax.text(-0.1, -0.26, "夹角越小，匹配程度越高；低于阈值的岗位直接淘汰",
             fontsize=15, color=SLATE)
     _titles(ax, "用户与岗位的匹配程度由向量夹角度量（式二）",
             "余弦相似度 cos(u, j) = u·j ∕ (|u|·|j|)",
