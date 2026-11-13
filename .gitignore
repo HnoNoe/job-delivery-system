@@ -22,3 +22,5 @@ zhaopin_crawler/*.log
 
 # pip 构建产物
 *.egg-info/
+dataset_v2/
+数据集v2.7z

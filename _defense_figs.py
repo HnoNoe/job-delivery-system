@@ -291,9 +291,156 @@ def fig4(ids, names, X):
     print("saved fig4")
 
 
+# ================================================================ fig5 岗位聚类图谱（真实 Boss 检索数据）
+def _job_features():
+    """从 jobs 表读取真实检索岗位，构建统一字段特征矩阵。"""
+    import re
+    deg_map = {"学历不限": 0.5, "大专": 1.0, "本科": 2.0, "硕士": 3.0, "博士": 4.0}
+    exp_map = {"经验不限": 0.0, "应届生": 0.5, "1年以内": 0.7, "1-3年": 1.0,
+               "3-5年": 2.0, "5-10年": 3.0, "10年以上": 4.0}
+    kw_list = ["Python", "Java", "前端", "算法", "数据", "测试", "运维", "C++"]
+    rows, metas = [], []
+    with db.get_conn() as conn:
+        recs = conn.execute("SELECT fields FROM jobs WHERE active=1").fetchall()
+    for r in recs:
+        f = json.loads(r["fields"])
+        name = f.get("岗位名称", "")
+        if not name or name.startswith("演示") or "127.0.0.1" in f.get("岗位链接", ""):
+            continue  # 剔除演示岗与 mock 岗，只留真实 Boss 岗位
+        m = re.search(r"(\d+)\s*-\s*(\d+)\s*[Kk]", f.get("薪资", ""))
+        sal = (float(m.group(1)) + float(m.group(2))) / 2 if m else np.nan
+        deg = deg_map.get(f.get("学历", ""), 2.0) / 4.0
+        exp = exp_map.get(f.get("经验", ""), 0.0) / 4.0
+        skl = min(len([s for s in re.split(r"[、,，\s]+", f.get("技能", "")) if s]), 8) / 8.0
+        hay = (name + " " + f.get("技能", "") + " " + f.get("岗位描述", "")).lower()
+        kws = [1.0 if k.lower() in hay else 0.0 for k in kw_list]
+        rows.append([sal, deg, exp, skl] + kws)
+        metas.append((name, f.get("行业", "") or "其他", sal))
+    F = np.asarray(rows, dtype=float)
+    col_mean = np.nanmean(F, axis=0)
+    idx = np.where(np.isnan(F))
+    F[idx] = np.take(col_mean, idx[1])
+    mu, sd = F.mean(axis=0), F.std(axis=0) + 1e-9
+    return (F - mu) / sd, metas
+
+
+def fig5():
+    from collections import Counter
+    from matplotlib.lines import Line2D
+    from matplotlib.ticker import MaxNLocator
+    rng = np.random.default_rng(42)
+    Fs, metas = _job_features()
+    n = len(Fs)
+
+    def kmeans(P, k):
+        best = None
+        for _ in range(30):
+            cent = P[rng.choice(len(P), k, replace=False)]
+            lab = np.zeros(len(P), dtype=int)
+            for _ in range(50):
+                d = ((P[:, None, :] - cent[None]) ** 2).sum(-1)
+                lab = d.argmin(1)
+                new = np.array([P[lab == j].mean(0) if (lab == j).any() else cent[j]
+                                for j in range(k)])
+                if np.allclose(new, cent):
+                    break
+                cent = new
+            inertia = float(((P - cent[lab]) ** 2).sum())
+            if best is None or inertia < best[0]:
+                best = (inertia, lab.copy())
+        return best[1]
+
+    def silhouette(P, lab, k):
+        D = np.sqrt(((P[:, None, :] - P[None]) ** 2).sum(-1))
+        vals = []
+        for i in range(len(P)):
+            same = lab == lab[i]
+            same[i] = False
+            a = D[i, same].mean() if same.any() else 0.0
+            b = min(D[i, lab == j].mean() for j in range(k)
+                    if j != lab[i] and (lab == j).any())
+            vals.append((b - a) / max(a, b) if max(a, b) > 0 else 0.0)
+        return float(np.mean(vals))
+
+    lab = kmeans(Fs, 5)
+    best_k, best_lab, best_sil = 5, lab, silhouette(Fs, lab, 5)
+
+    Xc = Fs - Fs.mean(axis=0)
+    _, s, vt = np.linalg.svd(Xc, full_matrices=False)
+    proj = Xc @ vt.T[:, :3]
+    var = s ** 2 / np.sum(s ** 2)
+
+    PALETTE = ["#4F46E5", "#E11D48", "#D97706", "#0D9488", "#7C3AED"]
+    fig = plt.figure(figsize=(12, 6.75), dpi=200)
+    ax = fig.add_axes([0.04, 0.07, 0.70, 0.81], projection="3d")
+
+    for j in range(best_k):
+        P = proj[lab == j]
+        col = PALETTE[j % len(PALETTE)]
+        c = P.mean(axis=0)
+        if len(P) >= 3:
+            cov = np.cov(P.T) + np.eye(3) * 1e-9
+            vals, vecs = np.linalg.eigh(cov)
+            radii = 2.0 * np.sqrt(np.maximum(vals, 1e-12))
+            uu = np.linspace(0, 2 * np.pi, 24)
+            vv = np.linspace(0, np.pi, 14)
+            xs = np.outer(np.cos(uu), np.sin(vv))
+            ys = np.outer(np.sin(uu), np.sin(vv))
+            zs = np.outer(np.ones_like(uu), np.cos(vv))
+            sph = np.stack([xs.ravel(), ys.ravel(), zs.ravel()], 0)
+            ell = c[:, None] + vecs @ (radii[:, None] * sph)
+            ax.plot_surface(ell[0].reshape(xs.shape), ell[1].reshape(ys.shape),
+                            ell[2].reshape(zs.shape), color=col, alpha=0.09,
+                            linewidth=0)
+        ax.scatter(P[:, 0], P[:, 1], P[:, 2], s=34, c=col, alpha=0.62,
+                   edgecolors="white", linewidths=0.4, depthshade=False)
+
+    pad = 0.06 * max(np.ptp(proj[:, 0]), np.ptp(proj[:, 1]), np.ptp(proj[:, 2]))
+    ax.set_xlim(proj[:, 0].min() - pad, proj[:, 0].max() + pad)
+    ax.set_ylim(proj[:, 1].min() - pad, proj[:, 1].max() + pad)
+    ax.set_zlim(proj[:, 2].min() - pad, proj[:, 2].max() + pad)
+    try:
+        ax.set_box_aspect((1.6, 1.1, 0.85))
+    except Exception:
+        pass
+    ax.set_xlabel("第一主成分（%.0f%%）" % (var[0] * 100), color=SLATE, labelpad=8, fontsize=14)
+    ax.set_ylabel("第二主成分（%.0f%%）" % (var[1] * 100), color=SLATE, labelpad=8, fontsize=14)
+    ax.set_zlabel("第三主成分（%.0f%%）" % (var[2] * 100), color=SLATE, labelpad=8, fontsize=14)
+    ax.tick_params(labelsize=10.5, colors=MUTED)
+    for _axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+        _axis.set_major_locator(MaxNLocator(5))
+    _titles(ax, "岗位画像：检索岗位在特征空间中自动聚类",
+            "统一字段特征经 K 均值聚类（K=%d，轮廓系数 %.2f）与主成分分析（PCA）投影至三维"
+            % (best_k, best_sil),
+            pad=40)
+    ax.view_init(elev=15, azim=-58)
+    for pane in (ax.xaxis, ax.yaxis, ax.zaxis):
+        pane.pane.set_alpha(0.02)
+        pane._axinfo["grid"].update(color="#EEF2F7", linewidth=0.7)
+
+    handles = []
+    for j in range(best_k):
+        cnt = int((lab == j).sum())
+        mem = [metas[i] for i in range(n) if lab[i] == j]
+        sal_vals = [m[2] for m in mem if not np.isnan(m[2])]
+        sal_txt = " · 均薪%.0fK" % (sum(sal_vals) / len(sal_vals)) if sal_vals else ""
+        handles.append(Line2D([0], [0], marker="o", color="none",
+                              markerfacecolor=PALETTE[j % len(PALETTE)], markersize=11,
+                              label="族%d（%d 个）%s" % (j + 1, cnt, sal_txt)))
+    fig.legend(handles=handles, loc="center left", bbox_to_anchor=(0.755, 0.56),
+               frameon=False, fontsize=11.5, labelspacing=1.2)
+    fig.text(0.77, 0.13,
+             "数据：Boss 直聘登录态检索，去重入库\n%d 个真实岗位；特征取自统一字段\n（薪资、学历、经验、技能、关键词）" % n,
+             fontsize=10, color=MUTED)
+    fig.savefig(os.path.join(OUT, "fig5_cluster3d.png"))
+    plt.close(fig)
+    print("saved fig5 (K=%d, silhouette=%.2f, n=%d)" % (best_k, best_sil, n))
+
+
 ids, names, X, feat = _load()
 fig1(ids, names, X)
 fig2(feat)
 fig3()
 fig4(ids, names, X)
-print("=== 4 张答辩用图完成 →", OUT)
+fig5()
+print("=== 5 张答辩用图完成 →", OUT)
