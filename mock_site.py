@@ -66,6 +66,35 @@ def _build_jobs():
 
 JOBS = _build_jobs()
 
+
+def _fake_qr_datauri():
+    """生成一张「看起来像二维码」的 SVG（25x25 模块，三个定位角），仅供演示站登录页使用。"""
+    import base64
+    import random
+    n, rnd = 25, random.Random(20261113)
+    finder_reserved, cells = set(), set()
+
+    def finder(ox, oy):
+        for dx in range(-1, 8):           # 定位角外圈留白
+            for dy in range(-1, 8):
+                finder_reserved.add((ox + dx, oy + dy))
+        for dx in range(7):
+            for dy in range(7):
+                if dx in (0, 6) or dy in (0, 6) or (2 <= dx <= 4 and 2 <= dy <= 4):
+                    cells.add((ox + dx, oy + dy))
+
+    for ox, oy in ((0, 0), (n - 7, 0), (0, n - 7)):
+        finder(ox, oy)
+    for x in range(n):
+        for y in range(n):
+            if (x, y) not in finder_reserved and rnd.random() < 0.42:
+                cells.add((x, y))
+    rects = "".join('<rect x="%d" y="%d" width="1" height="1"/>' % c for c in sorted(cells))
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d">'
+           '<rect width="%d" height="%d" fill="#fff"/><g fill="#111">%s</g></svg>') % (n, n, n, n, rects)
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
+
+
 # ---------- 页面样式（只美化，不改任何 DOM 类名/选择器，测试依赖保持不变） ----------
 _STYLE = """
 <style>
@@ -244,7 +273,7 @@ class MockHandler(BaseHTTPRequestHandler):
             "<!doctype html><html><head><meta charset='utf-8'>"
             "<title>登录 - Mock Boss</title>" + _STYLE + "</head><body>"
             "<h1>Mock Boss 登录</h1>"
-            "<img class='qrcode-img' src='data:image/gif;base64,R0lGODlhAQABAAAAACw='>"
+            "<img class='qrcode-img' width='200' height='200' src='" + _fake_qr_datauri() + "'>"
             "<p>扫码登录（测试站：点按钮即登录）</p>"
             "<button onclick=\"document.cookie='mock_login=1; path=/'; location.href='/web/geek/job?query=后端&city=北京&page=1'\">模拟登录成功</button>"
             "</body></html>")

@@ -62,49 +62,62 @@ def _rerun_app():
         st.rerun()
 
 
-@st.dialog("📱 扫码登录")
-def _qr_dialog(pk):
-    """二维码实时弹窗：隐藏浏览器在后台跑，本弹窗每 2 秒自动换码并检测登录。"""
+def _qr_panel(pk):
+    """网页内扫码面板（内嵌步骤②）：二维码每 2 秒自动刷新；登录成功面板自动收起。
+
+    注意：不用 st.dialog 弹窗——经实验，fragment 定时器触发的 app 重跑无法关闭
+    已打开的 dialog（弹窗会挂住），内嵌面板则能被整页重跑正常移除。
+    """
     p = platforms.get(pk)
+    with st.container(border=True):
+        st.markdown("**📱 %s · 扫码登录**" % p["name"])
+        st.caption("二维码每 2 秒自动刷新；登录成功后本面板自动收起。")
 
-    def _live():
-        if session.qr_login_status(pk):
-            ok, msg = session.dpage_finish(pk)
-            st.session_state.pop("qr_login_pk", None)
-            st.session_state.pop("login_report", None)
-            st.session_state["_login_flash"] = (
-                "%s：%s" % (p["name"], msg) if ok
-                else "%s：登录检测异常，请查看侧栏状态" % p["name"])
-            _rerun_app()
-            return
-        ok, payload = session.qr_login_shot(pk)
-        if ok:
-            try:
-                with open(payload, "rb") as _f:
-                    st.image(_f.read(), caption="用手机 %s App 扫码" % p["name"], width=260)
-            except OSError:
-                st.info("二维码加载中…")
+        def _live():
+            if st.session_state.get("qr_login_pk") != pk or st.session_state.get("_qr_closing"):
+                return  # 已收尾（或正在收尾），停止刷图防重入
+            # 登录检测与刷图放在同一个 fragment：实测第二个 run_every fragment
+            # 在本应用里整页重跑后不再被调度，单 fragment 才可靠
+            if session.qr_login_status(pk):
+                st.session_state["_qr_closing"] = True  # 先上锁再做 2 秒的登录保存
+                _ok, _msg = session.dpage_finish(pk)
+                st.session_state.pop("qr_login_pk", None)
+                st.session_state.pop("_qr_closing", None)
+                st.session_state.pop("login_report", None)
+                st.session_state["_login_flash"] = (
+                    "%s：%s" % (p["name"], _msg) if _ok
+                    else "%s：登录检测异常，请查看侧栏状态" % p["name"])
+                _rerun_app()
+                return
+            ok, payload = session.qr_login_shot(pk)
+            if ok:
+                try:
+                    with open(payload, "rb") as _f:
+                        st.image(_f.read(), caption="用手机 %s App 扫码" % p["name"], width=260)
+                except OSError:
+                    st.info("二维码加载中…")
+            else:
+                st.warning(payload)
+
+        if _FRAGMENT_EVERY:
+            st.fragment(_live, run_every=2)()
         else:
-            st.warning(payload)
+            _live()
+            st.button("🔄 刷新二维码", key="qr_manual_refresh")
+            st.caption("扫码完成后点上方「✅ 我已完成登录」")
 
-    st.caption("二维码每 2 秒自动刷新；登录成功后本窗口自动关闭。")
-    if _FRAGMENT_EVERY:
-        st.fragment(_live, run_every=2)()
-    else:
-        _live()
-        st.button("🔄 刷新二维码 / 检测登录", key="qr_manual_refresh")
-
-    c1, c2 = st.columns(2)
-    if c1.button("♻️ 二维码过期？换一张", key="qr_reload"):
-        session.qr_login_shot(pk, reload=True)
-        st.rerun()
-    if c2.button("❌ 取消", key="qr_cancel"):
-        st.session_state.pop("qr_login_pk", None)
-        _rerun_app()
-    if p.get("demo_scan_text"):
-        if st.button("🤖 演示站专用：模拟手机扫码", key="qr_demo_scan"):
-            session.qr_login_demo_scan(pk)
+        c1, c2 = st.columns(2)
+        if c1.button("♻️ 二维码过期？换一张", key="qr_reload"):
+            session.qr_login_shot(pk, reload=True)
             st.rerun()
+        if c2.button("❌ 取消", key="qr_cancel"):
+            st.session_state.pop("qr_login_pk", None)
+            st.rerun()
+        if p.get("demo_scan_text"):
+            if st.button("🤖 演示站专用：模拟手机扫码", key="qr_demo_scan"):
+                session.qr_login_demo_scan(pk)
+                st.rerun()
+
 
 def _full_width_kwargs() -> dict:
     """表格全宽渲染参数（跨 Streamlit 版本自适应）。
@@ -509,9 +522,9 @@ logged_in = [k for k in selected if session.can_search(k)]
 if logged_in:
     st.success("🔍 可用于检索的平台：" + "、".join(platforms.get(k)["name"] for k in logged_in))
 
-# 网页内扫码弹窗（点「📱 网页内扫码」后触发； fragment 每 2 秒自动刷新二维码）
+# 网页内扫码面板（点「📱 网页内扫码」后触发；二维码 2 秒一刷，检测到登录自动收起）
 if st.session_state.get("qr_login_pk"):
-    _qr_dialog(st.session_state["qr_login_pk"])
+    _qr_panel(st.session_state["qr_login_pk"])
 
 # ================= 步骤③ 检索岗位 =================
 st.markdown("---")
