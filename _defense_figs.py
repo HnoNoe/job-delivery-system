@@ -2,6 +2,11 @@
 
 数据源为本机演示库（6 个用户，式一 user_vec 与统一字段指标），
 运行：python _defense_figs.py  →  docs/defense/fig1~4.png
+
+图面文字规范（防御性书面汉语）：
+- 公式编号首次出现必须与物理含义绑定，如"（式一·凸组合模型）"；
+- 缩写首次出现给全称，如"主成分分析（PCA）"、"两倍标准差椭圆"；
+- 每张图脱离上下文独立成立，评委只看这一页也能读懂。
 """
 import json
 import os
@@ -71,14 +76,15 @@ def fig1(ids, names, X):
     _style_ax(ax)
     t_idx = ids.index(next(i for i in ids if names[i] == TARGET_NAME))
 
-    # 群体分布 2σ 椭圆
+    # 群体分布两倍标准差椭圆
     cov = np.cov(proj.T)
     vals, vecs = np.linalg.eigh(cov)
     ang = np.degrees(np.arctan2(vecs[1, 1], vecs[0, 1]))
     w, h = 2 * 2.0 * np.sqrt(np.maximum(vals, 1e-12))
     ax.add_patch(Ellipse(proj.mean(axis=0), w, h, angle=ang,
                          facecolor=PRIMARY, alpha=0.07, edgecolor=PRIMARY,
-                         linewidth=1.2, linestyle="--", zorder=1, label="群体分布（2σ 椭圆）"))
+                         linewidth=1.2, linestyle="--", zorder=1,
+                         label="用户群体的分布范围（两倍标准差椭圆）"))
 
     others = [i for i in range(len(ids)) if i != t_idx]
     ax.scatter(proj[others, 0], proj[others, 1], s=90, c=MUTED, alpha=0.9,
@@ -96,14 +102,15 @@ def fig1(ids, names, X):
     ax.annotate(TARGET_NAME, proj[t_idx], xytext=(14, 10), textcoords="offset points",
                 fontsize=13.5, color=ACCENT, fontweight="bold")
     mid = proj[t_idx] / 2
-    ax.annotate("式一用户向量 u", mid, xytext=(10, -20),
+    ax.annotate("%s的用户表示向量 u（式一）" % TARGET_NAME, mid, xytext=(10, -24),
                 textcoords="offset points", fontsize=12.5, color=ACCENT,
                 fontweight="bold",
                 bbox=dict(fc="white", ec="none", alpha=0.85, pad=1.5))
 
-    ax.set_xlabel("PC1（解释方差 %.1f%%）" % (var[0] * 100), color=SLATE)
-    ax.set_ylabel("PC2（解释方差 %.1f%%）" % (var[1] * 100), color=SLATE)
-    ax.set_title("超几何空间画像 · 语义空间用户定位\n式一凸组合用户表示经 PCA 投影至二维",
+    ax.set_xlabel("第一主成分（解释 %.1f%% 的方差）" % (var[0] * 100), color=SLATE)
+    ax.set_ylabel("第二主成分（解释 %.1f%% 的方差）" % (var[1] * 100), color=SLATE)
+    ax.set_title("超几何空间画像：每个用户都是语义空间中的一个点\n"
+                 "简历信息经凸组合模型（式一）生成用户表示向量，再由主成分分析（PCA）投影至二维平面",
                  fontsize=17, color=INK, fontweight="bold", pad=14)
     ax.legend(loc="best", frameon=False, fontsize=12)
     pad = 0.35 * np.ptp(proj[:, 0])
@@ -132,7 +139,7 @@ def fig2(feat):
     tvals += tvals[:1]; mvals += mvals[:1]; ang += ang[:1]
 
     fig, ax = plt.subplots(figsize=(12, 6.75), dpi=200, subplot_kw=dict(polar=True))
-    ax.plot(ang, mvals, color=MUTED, linewidth=2, label="群体均值（n=6）")
+    ax.plot(ang, mvals, color=MUTED, linewidth=2, label="群体均值（6 名用户）")
     ax.fill(ang, mvals, color=MUTED, alpha=0.12)
     ax.plot(ang, tvals, color=PRIMARY, linewidth=2.6, label="定位用户（%s）" % TARGET_NAME)
     ax.fill(ang, tvals, color=PRIMARY, alpha=0.18)
@@ -147,7 +154,8 @@ def fig2(feat):
         ax.annotate("%.2f" % v, (a, v * 0.92), xytext=(0, 5), textcoords="offset points",
                     ha="center", fontsize=10.5, color=PRIMARY, fontweight="bold",
                     bbox=dict(fc="white", ec="none", alpha=0.85, pad=0.8))
-    ax.set_title("统一字段六维画像 · 定位用户 vs 群体\n（指标已归一化至 0~1）",
+    ax.set_title("定位用户与群体均值的六维画像对比\n"
+                 "六个维度取自统一字段数据库并归一化至 0~1，六边形越饱满，用户画像越全面",
                  fontsize=17, color=INK, fontweight="bold", pad=22)
     ax.legend(loc="lower right", bbox_to_anchor=(1.16, -0.06), frameon=False, fontsize=12)
     fig.tight_layout()
@@ -165,12 +173,13 @@ def fig3():
 
     origin = np.array([0.0, 0.0])
     uvec = np.array([1.0, 0.0])
-    jobs = [("岗位A", 16, ACCENT, "cosθ=0.96", "A 级强匹配"),
-            ("岗位B", 42, GOLD, "cosθ=0.74", None),
-            ("岗位C", 78, MUTED, "cosθ=0.21", "淘汰")]
+    jobs = [("岗位A", 16, ACCENT, "cosθ = 0.96", "强匹配"),
+            ("岗位B", 42, GOLD, "cosθ = 0.74", None),
+            ("岗位C", 78, MUTED, "cosθ = 0.21", "低于阈值，淘汰")]
     ax.add_patch(FancyArrowPatch(origin, uvec, arrowstyle="-|>", mutation_scale=26,
                                  color=PRIMARY, linewidth=3.2, zorder=4))
-    ax.text(0.55, -0.09, "用户向量 u（式一）", color=PRIMARY, fontsize=13.5, fontweight="bold")
+    ax.text(0.5, -0.1, "用户表示向量 u（式一）", color=PRIMARY, fontsize=13.5,
+            fontweight="bold")
     for name, deg, color, note, verdict in jobs:
         v = np.array([np.cos(np.radians(deg)), np.sin(np.radians(deg))]) * 0.92
         ax.add_patch(FancyArrowPatch(origin, v, arrowstyle="-|>", mutation_scale=18,
@@ -182,11 +191,14 @@ def fig3():
                     color=color, fontsize=10.5, ha="center",
                     bbox=dict(fc="white", ec="none", alpha=0.85, pad=0.8))
     th = np.linspace(0, np.radians(42), 40)
-    ax.plot(0.4 * np.cos(th), 0.4 * np.sin(th), color=SLATE, linewidth=1.4, linestyle="--")
-    ax.text(0.47, 0.13, "θ", fontsize=15, color=SLATE, style="italic")
+    ax.plot(0.32 * np.cos(th), 0.32 * np.sin(th), color=SLATE, linewidth=1.4, linestyle="--")
+    ax.text(0.375, 0.055, "θ", fontsize=15, color=SLATE, style="italic")
     ax.set_xlim(-0.15, 1.35); ax.set_ylim(-0.3, 1.15)
     ax.set_xticks([]); ax.set_yticks([])
-    ax.set_title("式二 · 向量空间的匹配几何\ncos(u, j) = u·j / (|u||j|)",
+    ax.text(-0.1, -0.22, "夹角越小，岗位与用户的匹配程度越高",
+            fontsize=12, color=SLATE)
+    ax.set_title("用户与岗位的匹配程度由向量夹角度量（式二）\n"
+                 "余弦相似度 cos(u, j) = u·j ∕ (|u|·|j|)",
                  fontsize=14.5, color=INK, fontweight="bold", pad=10)
 
     ax2 = fig.add_subplot(gs[1])
@@ -200,9 +212,13 @@ def fig3():
         ax2.annotate(lb, (xv, yv), xytext=(0, 9), textcoords="offset points",
                      ha="center", fontsize=12, color=cv, fontweight="bold")
     ax2.axhline(0.5, color=LINE, linewidth=1, linestyle="--")
-    ax2.set_xlabel("综合输入  w_s·cosθ + w_δ·δ", color=SLATE)
+    ax2.text(-0.98, 0.86, "冷启动时反馈修正项 δ = 0\n产生投递反馈后 δ 参与打分",
+             fontsize=10.5, color=SLATE,
+             bbox=dict(fc="white", ec=LINE, alpha=0.9, pad=4))
+    ax2.set_xlabel("综合输入（s 为余弦相似度，δ 为反馈修正项）", color=SLATE)
     ax2.set_ylabel("匹配分 p", color=SLATE)
-    ax2.set_title("式三 · 匹配分映射\np = σ(w_s·s + w_δ·δ)，冷启动 δ=0，反馈后 δ 生效",
+    ax2.set_title("匹配分数由逻辑斯谛函数映射生成（式三）\n"
+                  "p = σ(w_s·s + w_δ·δ)",
                   fontsize=14.5, color=INK, fontweight="bold", pad=10)
     ax2.set_xlim(-1.05, 1.05); ax2.set_ylim(-0.05, 1.05)
 
@@ -244,11 +260,13 @@ def fig4(ids, names, X):
         ax.set_box_aspect((1.2, 1, 0.8))
     except Exception:
         pass
-    ax.set_xlabel("PC1 (%.0f%%)" % (var[0] * 100), color=SLATE, labelpad=10, fontsize=13)
-    ax.set_ylabel("PC2 (%.0f%%)" % (var[1] * 100), color=SLATE, labelpad=10, fontsize=13)
-    ax.set_zlabel("PC3 (%.0f%%)" % (var[2] * 100), color=SLATE, labelpad=10, fontsize=13)
+    ax.set_xlabel("第一主成分（%.0f%%）" % (var[0] * 100), color=SLATE, labelpad=10, fontsize=13)
+    ax.set_ylabel("第二主成分（%.0f%%）" % (var[1] * 100), color=SLATE, labelpad=10, fontsize=13)
+    ax.set_zlabel("第三主成分（%.0f%%）" % (var[2] * 100), color=SLATE, labelpad=10, fontsize=13)
     ax.tick_params(labelsize=10, colors=MUTED)
-    ax.set_title("超几何空间画像 · 三维投影\n高维用户表示在前三主成分上的分布",
+    ax.set_title("超几何空间画像：用户群体在三维主成分空间中的分布\n"
+                 "前三个主成分累计解释 %.0f%% 的方差，点与点的距离反映用户画像的差异"
+                 % (var[:3].sum() * 100),
                  fontsize=17, color=INK, fontweight="bold", pad=16)
     ax.view_init(elev=22, azim=-52)
     for pane in (ax.xaxis, ax.yaxis, ax.zaxis):
