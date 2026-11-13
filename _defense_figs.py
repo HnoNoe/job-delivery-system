@@ -372,7 +372,7 @@ def fig5():
 
     PALETTE = ["#4F46E5", "#E11D48", "#D97706", "#0D9488", "#7C3AED"]
     fig = plt.figure(figsize=(12, 6.75), dpi=200)
-    ax = fig.add_axes([0.04, 0.07, 0.70, 0.81], projection="3d")
+    ax = fig.add_axes([0.02, 0.04, 0.71, 0.81], projection="3d")
 
     for j in range(best_k):
         P = proj[lab == j]
@@ -395,24 +395,24 @@ def fig5():
         ax.scatter(P[:, 0], P[:, 1], P[:, 2], s=34, c=col, alpha=0.62,
                    edgecolors="white", linewidths=0.4, depthshade=False)
 
-    pad = 0.06 * max(np.ptp(proj[:, 0]), np.ptp(proj[:, 1]), np.ptp(proj[:, 2]))
-    ax.set_xlim(proj[:, 0].min() - pad, proj[:, 0].max() + pad)
-    ax.set_ylim(proj[:, 1].min() - pad, proj[:, 1].max() + pad)
-    ax.set_zlim(proj[:, 2].min() - pad, proj[:, 2].max() + pad)
+    pad = 0.035 * np.maximum(np.ptp(proj, axis=0), 0.5)
+    ax.set_xlim(proj[:, 0].min() - pad[0], proj[:, 0].max() + pad[0])
+    ax.set_ylim(proj[:, 1].min() - pad[1], proj[:, 1].max() + pad[1])
+    ax.set_zlim(proj[:, 2].min() - pad[2], proj[:, 2].max() + pad[2])
     try:
-        ax.set_box_aspect((1.6, 1.1, 0.85))
+        ax.set_box_aspect((1.75, 1.15, 0.9))
     except Exception:
         pass
-    ax.set_xlabel("第一主成分（%.0f%%）" % (var[0] * 100), color=SLATE, labelpad=8, fontsize=14)
-    ax.set_ylabel("第二主成分（%.0f%%）" % (var[1] * 100), color=SLATE, labelpad=8, fontsize=14)
-    ax.set_zlabel("第三主成分（%.0f%%）" % (var[2] * 100), color=SLATE, labelpad=8, fontsize=14)
-    ax.tick_params(labelsize=10.5, colors=MUTED)
+    ax.set_xlabel("第一主成分（%.0f%%）" % (var[0] * 100), color=SLATE, labelpad=10, fontsize=17)
+    ax.set_ylabel("第二主成分（%.0f%%）" % (var[1] * 100), color=SLATE, labelpad=10, fontsize=17)
+    ax.set_zlabel("第三主成分（%.0f%%）" % (var[2] * 100), color=SLATE, labelpad=10, fontsize=17)
+    ax.tick_params(labelsize=13, colors=MUTED)
     for _axis in (ax.xaxis, ax.yaxis, ax.zaxis):
         _axis.set_major_locator(MaxNLocator(5))
     _titles(ax, "岗位画像：检索岗位在特征空间中自动聚类",
-            "统一字段特征经 K 均值聚类（K=%d，轮廓系数 %.2f）与主成分分析（PCA）投影至三维"
-            % (best_k, best_sil),
-            pad=40)
+            "统一字段特征经 K 均值聚类（K=5，轮廓系数 %.2f）与主成分分析（PCA）投影至三维"
+            % best_sil,
+            main_size=23, sub_size=16, pad=34)
     ax.view_init(elev=15, azim=-58)
     for pane in (ax.xaxis, ax.yaxis, ax.zaxis):
         pane.pane.set_alpha(0.02)
@@ -425,13 +425,13 @@ def fig5():
         sal_vals = [m[2] for m in mem if not np.isnan(m[2])]
         sal_txt = " · 均薪%.0fK" % (sum(sal_vals) / len(sal_vals)) if sal_vals else ""
         handles.append(Line2D([0], [0], marker="o", color="none",
-                              markerfacecolor=PALETTE[j % len(PALETTE)], markersize=11,
+                              markerfacecolor=PALETTE[j % len(PALETTE)], markersize=13,
                               label="族%d（%d 个）%s" % (j + 1, cnt, sal_txt)))
-    fig.legend(handles=handles, loc="center left", bbox_to_anchor=(0.755, 0.56),
-               frameon=False, fontsize=11.5, labelspacing=1.2)
-    fig.text(0.77, 0.13,
+    fig.legend(handles=handles, loc="center left", bbox_to_anchor=(0.745, 0.58),
+               frameon=False, fontsize=14, labelspacing=1.5)
+    fig.text(0.755, 0.10,
              "数据：Boss 直聘登录态检索，去重入库\n%d 个真实岗位；特征取自统一字段\n（薪资、学历、经验、技能、关键词）" % n,
-             fontsize=10, color=MUTED)
+             fontsize=11.5, color=MUTED, linespacing=1.6)
     fig.savefig(os.path.join(OUT, "fig5_cluster3d.png"))
     plt.close(fig)
     print("saved fig5 (K=%d, silhouette=%.2f, n=%d)" % (best_k, best_sil, n))
