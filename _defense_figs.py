@@ -129,6 +129,7 @@ def fig1(ids, names, X):
     ax.set_ylim(proj[:, 1].min() - pad, proj[:, 1].max() + pad)
     fig.tight_layout()
     fig.savefig(os.path.join(OUT, "fig1_semantic_space.png"))
+    fig.savefig(os.path.join(OUT, "fig1_semantic_space.svg"))
     plt.close(fig)
     print("saved fig1")
 
@@ -173,6 +174,7 @@ def fig2(feat):
                frameon=False, fontsize=14)
     fig.tight_layout(rect=[0.01, 0.03, 0.80, 0.86])
     fig.savefig(os.path.join(OUT, "fig2_radar.png"))
+    fig.savefig(os.path.join(OUT, "fig2_radar.svg"))
     plt.close(fig)
     print("saved fig2")
 
@@ -237,6 +239,7 @@ def fig3():
 
     fig.tight_layout()
     fig.savefig(os.path.join(OUT, "fig3_match_geometry.png"))
+    fig.savefig(os.path.join(OUT, "fig3_match_geometry.svg"))
     plt.close(fig)
     print("saved fig3")
 
@@ -287,6 +290,7 @@ def fig4(ids, names, X):
         pane._axinfo["grid"].update(color=LINE, linewidth=0.8)
     fig.tight_layout()
     fig.savefig(os.path.join(OUT, "fig4_space3d.png"))
+    fig.savefig(os.path.join(OUT, "fig4_space3d.svg"))
     plt.close(fig)
     print("saved fig4")
 
@@ -463,6 +467,34 @@ def fig5():
              "数据：Boss 直聘登录态检索，去重入库 %d 个真实岗位\n特征取自统一字段：薪资、学历、经验、技能、关键词" % n,
              fontsize=10, color=MUTED, linespacing=1.7)
     fig.savefig(os.path.join(OUT, "fig5_cluster3d.png"))
+    fig.savefig(os.path.join(OUT, "fig5_cluster3d.svg"))
+    # ---- 可编辑素材：投影坐标、聚类标签、配色、椭球参数全部导出 ----
+    ellipsoids = []
+    for j in range(best_k):
+        P = proj[lab == j]
+        if len(P) < 3:
+            continue
+        cov = np.cov(P.T) + np.eye(3) * 1e-9
+        vals, vecs = np.linalg.eigh(cov)
+        ellipsoids.append({
+            "cluster": j, "center": P.mean(axis=0).tolist(),
+            "radii": (2.0 * np.sqrt(np.maximum(vals, 1e-12))).tolist(),
+            "eigvecs": vecs.tolist(),
+            "color": PALETTE[j % len(PALETTE)],
+            "name": cluster_name(j)[0],
+            "count": int((lab == j).sum()),
+        })
+    with open(os.path.join(OUT, "fig5_cluster_data.json"), "w", encoding="utf-8") as fh:
+        json.dump({
+            "points_3d": proj.tolist(),
+            "labels": lab.tolist(),
+            "colors": [PALETTE[j % len(PALETTE)] for j in lab],
+            "names": {str(j): cluster_name(j)[0] for j in range(best_k)},
+            "pc_names": pc_names,
+            "var_ratio": var[:3].tolist(),
+            "silhouette": best_sil,
+            "ellipsoids": ellipsoids,
+        }, fh, ensure_ascii=False)
     plt.close(fig)
     print("saved fig5 (K=%d, silhouette=%.2f, n=%d)" % (best_k, best_sil, n))
 
