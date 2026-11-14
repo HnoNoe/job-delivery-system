@@ -69,6 +69,7 @@
 | `generation.py` / `delivery.py` / `feedback.py` | 步骤五~七 |
 | `pipeline.py` / `loop.py` | 流程编排 |
 | `app.py` | Web Dashboard（6 步向导） |
+| `pages/01_画像广场.py` + `profile_plaza.py` + `components/profile_plaza/` | 画像广场·联动投影台（三维总览 + XY/XZ 投影 + 人物详情，三图共享选中用户） |
 | `main.py` | CLI 入口 |
 | `start.py` / `start.bat` | 一键启动 |
 
@@ -97,6 +98,19 @@ python start.py --foreground            # 前台运行，Ctrl+C 停止
 ```
 
 默认端口 8501 被占用时自动选择空闲端口，请以控制台打印的地址为准。无 GUI 的服务器使用 `--no-browser`；自动化浏览器可通过 `JOBDELIVERY_HEADLESS=1` 运行。
+
+### 画像广场 · 联动投影台
+
+侧边栏进入「画像广场」，页面把用户画像从单张散点图升级为**联动投影台**：
+
+- 左侧三维总览 + 右侧 XY / XZ 两张二维投影，下方是当前选中人物的数值摘要；
+- 三张图共用同一批有效用户与同一个 `user_id` 选中态：在任意视图点选，另外两图与详情同步高亮；
+- 可在指标空间（GPA / 排名 / 经历 / 技能 / 投递 / 进面试率 / 平均匹配分）与语义空间（式一用户向量 PCA）之间切换；PCA 只在数据版本变化时计算一次，三图共用同一组 PC1/PC2/PC3；
+- 缺失所选指标的用户会在三图一致排除，并在「未显示用户与缺失原因」中列出，不补零；被选中用户缺当前轴时保留详情、不伪造高亮；
+- 点选重叠（三维同坐标或二维投影重合）会弹出候选人物列表消歧，同名用户按编号/学校/专业区分；
+- 数据与空间构造位于 `profile_plaza.py`，前端在 `components/profile_plaza/index.html`；测试见 `tests/test_profile_plaza.py`。
+
+暗色主题下先禁用 `.streamlit/config.toml` 的 `theme.base = "light"`（或启动时传 `--theme.base dark`），页面与组件均使用 `theme.plaza_colors()` 的暗色令牌。
 
 配置环境变量后再启动（不会自动加载 `.env` 文件）：
 

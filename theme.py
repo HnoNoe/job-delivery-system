@@ -86,6 +86,28 @@ def match_space_colors():
     return dict(MATCH_SPACE["dark" if is_dark() else "light"])
 
 
+# ---------------------------------------------------------------- 画像广场联动投影台配色
+# 按《画像广场联动投影台改造移交》第 4 节视觉规范；只作用于画像广场，
+# 不改动第⑤步 MATCH_SPACE，也不改动全站等级色。
+PLAZA = {
+    "light": {
+        "surface": "#F7F8FC", "panel": "#FFFFFF", "subtle": "#F0F2F8",
+        "ink": "#202A3C", "sub": "#69758A", "line": "#E5E9F1", "grid": "#CBD4E3",
+        "dot": "#929FBB", "accent": "#6256DE", "wash": "#EEEBFC",
+    },
+    "dark": {
+        "surface": "#10151F", "panel": "#171D29", "subtle": "#202837",
+        "ink": "#E8EDF7", "sub": "#9BA9C1", "line": "#303A4E", "grid": "#3A4A65",
+        "dot": "#8293B2", "accent": "#AD9CFF", "wash": "#302947",
+    },
+}
+
+
+def plaza_colors():
+    """画像广场组件配色（跟随显式 theme.base，不猜 CSS 背景）。"""
+    return dict(PLAZA["dark" if is_dark() else "light"])
+
+
 def dataframe(df, **kwargs):
     """表格渲染入口：跨 Streamlit 版本全宽适配（业务代码不写弃用参数）。"""
     try:
