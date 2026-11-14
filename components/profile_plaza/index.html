@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  #pp-root {
+    --pp-surface: #F7F8FC; --pp-panel: #FFFFFF; --pp-subtle: #F0F2F8;
+    --pp-ink: #202A3C; --pp-sub: #69758A; --pp-line: #E5E9F1;
+    --pp-grid: #CBD4E3; --pp-dot: #929FBB; --pp-accent: #6256DE; --pp-wash: #EEEBFC;
+    background: var(--pp-surface); color: var(--pp-ink);
+    font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+    font-size: 13px; line-height: 1.55;
+    border: 1px solid var(--pp-line); border-radius: 18px;
+    padding: 16px 18px 14px; box-sizing: border-box; width: 100%; position: relative;
+  }
+  #pp-root *, #pp-root *::before, #pp-root *::after { box-sizing: border-box; }
+  #pp-root h2, #pp-root h3, #pp-root p { margin: 0; }
+  .pp-top { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    margin-bottom: 12px; flex-wrap: wrap; }
+  .pp-summary { color: var(--pp-sub); font-size: 12px; }
+  .pp-summary b { color: var(--pp-ink); font-weight: 600; }
+  .pp-top-right { display: flex; align-items: center; gap: 10px; color: var(--pp-sub);
+    font-size: 11px; }
+  .pp-pill { border: 1px solid var(--pp-line); border-radius: 999px; padding: 3px 9px;
+    color: var(--pp-sub); background: var(--pp-panel); white-space: nowrap; }
+  .pp-grid { display: grid; grid-template-columns: minmax(0, 2.05fr) minmax(0, 1fr);
+    gap: 14px; align-items: stretch; }
+  .pp-panel { background: var(--pp-panel); border: 1px solid var(--pp-line);
+    border-radius: 12px; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .pp-panel-head { display: flex; justify-content: space-between; align-items: center;
+    gap: 8px; padding: 10px 13px 6px; }
+  .pp-panel-head b { font-size: 12px; font-weight: 600; color: var(--pp-ink); }
+  .pp-panel-head span { color: var(--pp-sub); font-size: 10.5px; }
+  .pp-panel-head .pp-tag { color: var(--pp-sub); letter-spacing: 1.2px; font-size: 10px; }
+  .pp-scene { height: 468px; }
+  .pp-side { display: grid; grid-template-rows: 1fr 1fr; gap: 14px; min-width: 0; }
+  .pp-proj { min-height: 0; }
+  .pp-plot { position: relative; flex: 1; min-height: 0; touch-action: none;
+    user-select: none; }
+  .pp-plot-3d { cursor: grab; }
+  .pp-plot-3d:active { cursor: grabbing; }
+  .pp-plot svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .pp-plane { fill: var(--pp-subtle); opacity: .55; }
+  .pp-gridline { stroke: var(--pp-grid); stroke-width: 1; fill: none; opacity: .55; }
+  .pp-edge { stroke: var(--pp-grid); stroke-width: 1; fill: none; opacity: .8; }
+  .pp-guide { stroke: var(--pp-accent); stroke-width: 1.1; stroke-dasharray: 3 4;
+    fill: none; opacity: .5; }
+  .pp-axis { stroke: var(--pp-line); stroke-width: 1; fill: none; }
+  .pp-tick { fill: var(--pp-sub); font-size: 10.5px; font-family: inherit; }
+  .pp-axis-label { fill: var(--pp-sub); font-size: 10.5px; font-family: inherit; }
+  .pp-mark { appearance: none; border: 0; position: absolute; width: 28px; height: 28px;
+    border-radius: 50%; background: none; padding: 0; transform: translate(-50%, -50%);
+    display: grid; place-items: center; z-index: 2; cursor: pointer; color: var(--pp-panel);
+    font-family: inherit; font-size: 10px; font-weight: 600; }
+  .pp-mark:focus-visible { outline: 2px solid var(--pp-accent); outline-offset: 2px; }
+  .pp-dot { width: 7px; height: 7px; display: grid; place-items: center;
+    background: var(--pp-dot); border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--pp-panel); opacity: .92; }
+  .pp-mark.pp-group .pp-dot { width: 17px; height: 17px; font-size: 9.5px; }
+  .pp-mark.pp-active { z-index: 12; }
+  .pp-mark.pp-active .pp-dot { width: 11px; height: 11px; background: var(--pp-accent);
+    opacity: 1; box-shadow: 0 0 0 3px var(--pp-panel), 0 0 0 4px var(--pp-accent); }
+  .pp-mark.pp-active.pp-group .pp-dot { width: 20px; height: 20px; }
+  .pp-label { position: absolute; transform: translate(-50%, -160%); z-index: 14;
+    background: var(--pp-panel); border: 1px solid var(--pp-line); border-radius: 7px;
+    padding: 2px 7px; font-size: 11px; color: var(--pp-ink); white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(20, 28, 46, .10); pointer-events: none; }
+  .pp-reset { background: var(--pp-panel); border: 1px solid var(--pp-line); border-radius: 7px;
+    padding: 4px 9px; color: var(--pp-sub); font: inherit; font-size: 10.5px;
+    white-space: nowrap; cursor: pointer; }
+  .pp-reset:focus-visible { outline: 2px solid var(--pp-accent); outline-offset: 2px; }
+  .pp-detail { display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    background: var(--pp-panel); border: 1px solid var(--pp-line); border-radius: 12px;
+    padding: 13px 16px; margin-top: 14px; min-height: 82px; }
+  .pp-avatar { flex: none; width: 38px; height: 38px; border-radius: 10px;
+    background: var(--pp-wash); color: var(--pp-accent); display: grid; place-items: center;
+    font-size: 15px; font-weight: 600; }
+  .pp-identity { min-width: 160px; }
+  .pp-name { font-size: 16px; font-weight: 600; line-height: 1.35; color: var(--pp-ink); }
+  .pp-meta { font-size: 11.5px; color: var(--pp-sub); margin-top: 2px; }
+  .pp-values { display: flex; gap: 26px; flex-wrap: wrap; flex: 1; }
+  .pp-value { min-width: 98px; }
+  .pp-value-label { font-size: 10.5px; color: var(--pp-sub); white-space: nowrap; }
+  .pp-value b { display: block; font-size: 18px; line-height: 1.35; font-weight: 600;
+    color: var(--pp-ink); font-variant-numeric: tabular-nums; }
+  .pp-detail-note { flex-basis: 100%; color: var(--pp-sub); font-size: 11px; }
+  .pp-detail-note.pp-warn { color: var(--pp-accent); }
+  .pp-foot { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    color: var(--pp-sub); font-size: 10.5px; padding: 10px 2px 0; }
+  .pp-empty { display: none; padding: 44px 20px; text-align: center; color: var(--pp-sub);
+    font-size: 12.5px; background: var(--pp-panel); border: 1px dashed var(--pp-line);
+    border-radius: 12px; margin-top: 12px; }
+  .pp-root.pp-empty-mode .pp-grid, .pp-root.pp-empty-mode .pp-detail { display: none; }
+  .pp-root.pp-empty-mode .pp-empty { display: block; }
+  .pp-root.pp-flat .pp-scene { display: none; }
+  .pp-root.pp-flat .pp-grid { grid-template-columns: minmax(0, 1fr); }
+  .pp-root.pp-flat .pp-side { grid-template-rows: 1fr; height: 430px; }
+  .pp-root.pp-flat .pp-proj-xz { display: none; }
+  .pp-cand { position: absolute; z-index: 40; min-width: 210px; max-width: 320px;
+    background: var(--pp-panel); border: 1px solid var(--pp-line); border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(20, 28, 46, .18); padding: 7px; }
+  .pp-cand-title { font-size: 10.5px; color: var(--pp-sub); padding: 2px 6px 6px; }
+  .pp-cand button { display: block; width: 100%; text-align: left; border: 0;
+    background: transparent; color: var(--pp-ink); font: inherit; font-size: 11.5px;
+    padding: 6px 7px; border-radius: 6px; cursor: pointer; line-height: 1.45; }
+  .pp-cand button:hover, .pp-cand button:focus-visible { background: var(--pp-wash);
+    outline: none; }
+  .pp-cand .pp-cand-close { color: var(--pp-sub); border-top: 1px solid var(--pp-line);
+    margin-top: 4px; padding-top: 7px; border-radius: 0 0 6px 6px; }
+  @media (max-width: 760px) {
+    #pp-root { padding: 12px 12px 10px; border-radius: 14px; }
+    .pp-grid { grid-template-columns: minmax(0, 1fr); }
+    .pp-scene { height: 360px; }
+    .pp-side { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-rows: auto; height: 190px; }
+    .pp-root.pp-flat .pp-side { grid-template-columns: 1fr; height: 340px; }
+    .pp-detail { gap: 12px; padding: 12px; }
+    .pp-values { gap: 16px; }
+    .pp-value { min-width: 82px; }
+  }
+  @media (max-width: 520px) {
+    .pp-side { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; height: 370px; }
+    .pp-root.pp-flat .pp-side { height: 330px; }
+    .pp-summary { font-size: 11px; }
+    .pp-value b { font-size: 16px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .pp-mark .pp-dot { transition: width .15s ease, height .15s ease; }
+  }
+</style>
+</head>
+<body>
+<div id="pp-root" class="pp-root">
+  <div class="pp-top">
+    <div class="pp-summary" id="pp-summary">正在加载画像空间…</div>
+    <div class="pp-top-right">
+      <span class="pp-pill" id="pp-mode">指标空间</span>
+      <span class="pp-pill" id="pp-dim">三维联动</span>
+    </div>
+  </div>
+  <div class="pp-grid" id="pp-grid">
+    <section class="pp-panel pp-scene" id="pp-scene">
+      <div class="pp-panel-head">
+        <div><b>三维总览</b><span id="pp-3d-sub"></span></div>
+        <button class="pp-reset" id="pp-reset" type="button">复位视角</button>
+      </div>
+      <div class="pp-plot pp-plot-3d" id="pp-plot-3d" role="img"
+           aria-label="用户指标三维总览"></div>
+    </section>
+    <div class="pp-side">
+      <section class="pp-panel pp-proj pp-proj-xy">
+        <div class="pp-panel-head"><b id="pp-xy-title">X × Y 投影</b><span class="pp-tag">XY</span></div>
+        <div class="pp-plot" id="pp-plot-xy" role="img" aria-label="X 与 Y 二维投影"></div>
+      </section>
+      <section class="pp-panel pp-proj pp-proj-xz">
+        <div class="pp-panel-head"><b id="pp-xz-title">X × Z 投影</b><span class="pp-tag">XZ</span></div>
+        <div class="pp-plot" id="pp-plot-xz" role="img" aria-label="X 与 Z 二维投影"></div>
+      </section>
+    </div>
+  </div>
+  <div class="pp-detail" id="pp-detail" aria-live="polite"></div>
+  <div class="pp-foot">
+    <span>同一用户在三个视图中同步高亮；原始数值不修改，投影距离只描述当前轴上的差异。</span>
+    <span id="pp-foot-note"></span>
+  </div>
+  <div class="pp-empty" id="pp-empty"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- Streamlit 组件协议（最小实现，无外部依赖） ----------
+  function send(type, data) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data || {}), "*");
+  }
+  function setValue(value) { send("streamlit:setComponentValue", { value: value, dataType: "json" }); }
+  function setHeight() {
+    var root = document.getElementById("pp-root");
+    var h = Math.ceil(root.getBoundingClientRect().height);
+    send("streamlit:setFrameHeight", { height: h + 2 });
+  }
+  send("streamlit:componentReady", { apiVersion: 1 });
+
+  // ---------- 状态 ----------
+  var DATA = null;
+  var selectedId = null;
+  var lastIncoming = null;
+  var cam = { a: 0.72, e: 0.47 };
+  var plots = null;
+  var marksDirty = true;
+  var candidateEl = null;
+  var layoutSig = "";
+  var resizeObserved = false;
+
+  var COLORS = ["surface", "panel", "subtle", "ink", "sub", "line", "grid", "dot", "accent", "wash"];
+
+  function esc(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  function root() { return document.getElementById("pp-root"); }
+  function users() { return (DATA && DATA.users) || []; }
+  function userById(id) {
+    var list = users();
+    for (var i = 0; i < list.length; i++) if (String(list[i].user_id) === String(id)) return list[i];
+    return null;
+  }
+  function selectedUser() { return DATA && DATA.selected_user ? DATA.selected_user : null; }
+  function axes() { return (DATA && DATA.axes) || []; }
+  function axisLabel(i) {
+    var a = axes()[i];
+    return a ? a.label : ("轴" + (i + 1));
+  }
+  function visibleUsers() {
+    return users().filter(function (u) {
+      return u.coords && u.coords.length >= Math.min(2, axes().length);
+    });
+  }
+  function applyTheme(theme) {
+    var el = root();
+    COLORS.forEach(function (key) {
+      if (theme && theme[key]) el.style.setProperty("--pp-" + key, theme[key]);
+    });
+  }
+
+  // ---------- 绘图元素 ----------
+  function initPlots() {
+    plots = {
+      space: { el: document.getElementById("pp-plot-3d") },
+      xy: { el: document.getElementById("pp-plot-xy") },
+      xz: { el: document.getElementById("pp-plot-xz") }
+    };
+    Object.keys(plots).forEach(function (key) {
+      var p = plots[key];
+      p.svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      p.svg.setAttribute("role", "img");
+      p.el.appendChild(p.svg);
+      p.el.addEventListener("click", function (ev) {
+        if (ev.target.closest && ev.target.closest(".pp-mark")) return;
+        if (ev.target.closest && ev.target.closest(".pp-cand")) return;
+        pickAt(key, ev, null);
+      });
+    });
+    plots.space.el.addEventListener("pointerdown", function (ev) {
+      if (ev.target.closest && ev.target.closest("button")) return;
+      var drag = { x: ev.clientX, y: ev.clientY, a: cam.a, e: cam.e };
+      try { plots.space.el.setPointerCapture(ev.pointerId); } catch (e) {}
+      function move(e2) {
+        cam.a = Math.max(0.25, Math.min(1.35, drag.a + (e2.clientX - drag.x) * 0.0055));
+        cam.e = Math.max(0.22, Math.min(0.82, drag.e - (e2.clientY - drag.y) * 0.004));
+        drawSpace();
+        positionMarks("space");
+      }
+      function up() {
+        plots.space.el.removeEventListener("pointermove", move);
+        plots.space.el.removeEventListener("pointerup", up);
+        plots.space.el.removeEventListener("pointercancel", up);
+      }
+      plots.space.el.addEventListener("pointermove", move);
+      plots.space.el.addEventListener("pointerup", up);
+      plots.space.el.addEventListener("pointercancel", up);
+    });
+    document.getElementById("pp-reset").addEventListener("click", function () {
+      cam = { a: 0.72, e: 0.47 };
+      drawSpace();
+      positionMarks("space");
+    });
+    if (window.ResizeObserver && !resizeObserved) {
+      resizeObserved = true;
+      var ro = new ResizeObserver(function () {
+        redrawAll();
+        setHeight();
+      });
+      ro.observe(root());
+      Object.keys(plots).forEach(function (k) { ro.observe(plots[k].el); });
+    }
+  }
+
+  // ---------- 三维正交投影（0~1 归一坐标 -> 屏幕坐标） ----------
+  function project3D(coords) {
+    var el = plots.space.el;
+    var w = el.clientWidth, h = el.clientHeight;
+    var sc = Math.min((w - 150) / 1.62, (h - 92) / 1.60);
+    if (!isFinite(sc) || sc <= 0) sc = Math.min(w, h) / 4.2;
+    var cx = w * 0.52, cy = h * 0.54;
+    var X = coords[0] - 0.5, Y = coords[1] - 0.5, Z = coords[2] - 0.5;
+    var ca = Math.cos(cam.a), sa = Math.sin(cam.a);
+    var ce = Math.cos(cam.e), se = Math.sin(cam.e);
+    return [
+      cx + sc * (X * ca - Y * sa),
+      cy - sc * (Z * ce + (X * sa + Y * ca) * se)
+    ];
+  }
+
+  function project2D(view, coords) {
+    var el = plots[view].el;
+    var w = el.clientWidth, h = el.clientHeight;
+    var l = 46, r = 14, t = 12, b = 30;
+    var xf = (w - l - r), yf = (h - t - b);
+    if (xf <= 4 || yf <= 4) return [l, h - b];
+    var yIndex = view === "xy" ? 1 : 2;
+    return [l + coords[0] * xf, t + (1 - coords[yIndex]) * yf];
+  }
+
+  function plotRect(el) {
+    var r = el.getBoundingClientRect();
+    return { left: r.left, top: r.top, width: r.width, height: r.height };
+  }
+
+  // ---------- 标记与选中 ----------
+  function groupKey(view, user) {
+    var c = user.coords || [];
+    if (view === "space") return c.slice(0, 3).map(function (v) { return Number(v).toFixed(6); }).join("/");
+    if (view === "xy") return Number(c[0]).toFixed(6) + "/" + Number(c[1]).toFixed(6);
+    return Number(c[0]).toFixed(6) + "/" + Number(c[2]).toFixed(6);
+  }
+
+  function groupsFor(view) {
+    var map = new Map();
+    visibleUsers().forEach(function (u) {
+      var key = groupKey(view, u);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(u);
+    });
+    return Array.from(map.values());
+  }
+
+  function rebuildMarks() {
+    if (!plots) return;
+    ["space", "xy", "xz"].forEach(function (view) {
+      var p = plots[view];
+      if (!p) return;
+      Array.prototype.slice.call(p.el.querySelectorAll(".pp-mark,.pp-label,.pp-cand")).forEach(function (el) {
+        el.remove();
+      });
+      var groups = groupsFor(view);
+      p.marks = groups.map(function (group) {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "pp-mark" + (group.length > 1 ? " pp-group" : "");
+        var names = group.map(function (u) { return u.name; }).join("、");
+        btn.setAttribute("aria-label",
+          names + "（" + group.length + " 位用户）；点击定位" +
+          (group.length > 1 ? "，可选择其中一位" : ""));
+        btn.title = group.map(function (u) {
+          return u.name + (u.school ? " · " + u.school : "") +
+            (u.major ? " · " + u.major : "") +
+            "；" + axes().map(function (a, i) {
+              return a.label + " " + (u.display ? u.display[i] : "");
+            }).join("，");
+        }).join("\n");
+        btn.innerHTML = '<span class="pp-dot">' + (group.length > 1 ? group.length : "") + "</span>";
+        btn.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+          var pos;
+          if (ev.detail === 0 || ev.clientX == null) {
+            pos = view === "space" ? project3D(group[0].coords) : project2D(view, group[0].coords);
+          } else {
+            var rc = plotRect(p.el);
+            pos = [ev.clientX - rc.left, ev.clientY - rc.top];
+          }
+          pickAt(view, null, pos);
+        });
+        p.el.appendChild(btn);
+        return btn;
+      });
+      var label = document.createElement("div");
+      label.className = "pp-label";
+      p.el.appendChild(label);
+      p.labelEl = label;
+    });
+    marksDirty = false;
+  }
+
+  function positionMarks(view) {
+    var p = plots[view];
+    if (!p || !p.marks) return;
+    var groups = groupsFor(view);
+    p.marks.forEach(function (btn, i) {
+      var group = groups[i];
+      if (!group) return;
+      var pos = view === "space" ? project3D(group[0].coords) : project2D(view, group[0].coords);
+      btn.style.left = pos[0] + "px";
+      btn.style.top = pos[1] + "px";
+      var active = group.some(function (u) { return String(u.user_id) === String(selectedId); });
+      btn.classList.toggle("pp-active", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+      btn.style.zIndex = active ? "12" : "2";
+    });
+    positionLabel(view, groups);
+  }
+
+  function positionLabel(view, groups) {
+    var p = plots[view];
+    if (!p || !p.labelEl) return;
+    var user = userById(selectedId);
+    var show = false;
+    if (user) {
+      var pos = view === "space" ? project3D(user.coords) : project2D(view, user.coords);
+      if (isFinite(pos[0]) && isFinite(pos[1])) {
+        var elw = p.el.clientWidth || 200, elh = p.el.clientHeight || 120;
+        p.labelEl.textContent = user.name || ("用户" + selectedId);
+        p.labelEl.style.left = Math.max(30, Math.min(pos[0], elw - 30)) + "px";
+        p.labelEl.style.top = pos[1] + "px";
+        // 靠近顶部时标签放到点下方，避免压住面板标题
+        p.labelEl.style.transform = pos[1] < 28
+          ? "translate(-50%, 26%)" : "translate(-50%, -160%)";
+        show = pos[1] > -8 && pos[1] < elh + 8;
+      }
+    }
+    p.labelEl.style.display = show ? "block" : "none";
+  }
+
+  // ---------- 三维绘制 ----------
+  function drawSpace() {
+    if (!plots || !DATA) return;
+    var p = plots.space;
+    var w = p.el.clientWidth, h = p.el.clientHeight;
+    if (w < 20 || h < 20) return;
+    p.svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+    var out = "";
+    var pt = function (c) { var q = project3D(c); return q[0] + "," + q[1]; };
+    // 底面
+    out += '<polygon class="pp-plane" points="' +
+      [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]].map(pt).join(" ") + '"/>';
+    var ax = axes();
+    var ticks0 = (ax[0] && ax[0].ticks) || [];
+    var ticks1 = (ax[1] && ax[1].ticks) || [];
+    ticks0.forEach(function (t) {
+      out += '<path class="pp-gridline" d="M' + pt([t.pos, 0, 0]) + "L" + pt([t.pos, 1, 0]) + '"/>';
+    });
+    ticks1.forEach(function (t) {
+      out += '<path class="pp-gridline" d="M' + pt([0, t.pos, 0]) + "L" + pt([1, t.pos, 0]) + '"/>';
+    });
+    var edges = [
+      [[0, 0, 0], [1, 0, 0]], [[0, 0, 0], [0, 1, 0]], [[0, 0, 0], [0, 0, 1]],
+      [[1, 0, 0], [1, 1, 0]], [[1, 0, 0], [1, 0, 1]], [[0, 1, 0], [1, 1, 0]],
+      [[0, 1, 0], [0, 1, 1]], [[0, 0, 1], [1, 0, 1]], [[0, 0, 1], [0, 1, 1]],
+      [[1, 1, 1], [1, 0, 1]], [[1, 1, 1], [1, 1, 0]], [[1, 1, 1], [0, 1, 1]]
+    ];
+    edges.forEach(function (edge) {
+      out += '<path class="pp-edge" d="M' + pt(edge[0]) + "L" + pt(edge[1]) + '"/>';
+    });
+    var sel = userById(selectedId);
+    if (sel) {
+      out += '<path class="pp-guide" d="M' + pt(sel.coords) + "L" + pt([sel.coords[0], sel.coords[1], 0]) + '"/>';
+    }
+    // 刻度
+    ticks0.forEach(function (t) {
+      var q = project3D([t.pos, 0, 0]);
+      out += '<text class="pp-tick" x="' + q[0] + '" y="' + (q[1] + 15) +
+        '" text-anchor="middle">' + esc(t.label) + "</text>";
+    });
+    ticks1.forEach(function (t) {
+      var q = project3D([0, t.pos, 0]);
+      out += '<text class="pp-tick" x="' + (q[0] - 8) + '" y="' + (q[1] + 4) +
+        '" text-anchor="end">' + esc(t.label) + "</text>";
+    });
+    ((ax[2] && ax[2].ticks) || []).forEach(function (t) {
+      var q = project3D([0, 0, t.pos]);
+      out += '<text class="pp-tick" x="' + (q[0] - 9) + '" y="' + (q[1] + 4) +
+        '" text-anchor="end">' + esc(t.label) + "</text>";
+    });
+    // 轴名
+    var q0 = project3D([1, 0, 0]), q1 = project3D([0, 1, 0]), q2 = project3D([0, 0, 1]);
+    out += '<text class="pp-axis-label" x="' + (q0[0] + 8) + '" y="' + (q0[1] + 32) +
+      '" text-anchor="middle">' + esc(axisLabel(0)) + "</text>";
+    out += '<text class="pp-axis-label" x="' + (q1[0] - 2) + '" y="' + (q1[1] + 26) +
+      '" text-anchor="middle">' + esc(axisLabel(1)) + "</text>";
+    out += '<text class="pp-axis-label" x="' + (q2[0] - 8) + '" y="' + (q2[1] - 12) +
+      '" text-anchor="end">' + esc(axisLabel(2)) + "</text>";
+    p.svg.innerHTML = out;
+    positionMarks("space");
+  }
+
+  // ---------- 二维绘制 ----------
+  function drawFlat(view) {
+    if (!plots || !DATA) return;
+    var p = plots[view];
+    var w = p.el.clientWidth, h = p.el.clientHeight;
+    if (w < 20 || h < 20) return;
+    p.svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+    var l = 46, r = 14, t = 12, b = 30;
+    var xf = w - l - r, yf = h - t - b;
+    if (xf <= 4 || yf <= 4) return;
+    var ax = axes();
+    var yIndex = view === "xy" ? 1 : 2;
+    if (!ax[0] || !ax[yIndex]) return;
+    var xy = function (v, axis) {
+      return l + (xf * ((v - axis.domain[0]) / (axis.domain[1] - axis.domain[0] || 1)));
+    };
+    var yy = function (v, axis) {
+      return t + yf * (1 - ((v - axis.domain[0]) / (axis.domain[1] - axis.domain[0] || 1)));
+    };
+    var out = "";
+    ax[yIndex].ticks.forEach(function (tk) {
+      out += '<path class="pp-gridline" d="M' + l + "," + yy(tk.value, ax[yIndex]) + "H" + (w - r) + '"/>';
+      out += '<text class="pp-tick" x="' + (l - 7) + '" y="' + (yy(tk.value, ax[yIndex]) + 4) +
+        '" text-anchor="end">' + esc(tk.label) + "</text>";
+    });
+    ax[0].ticks.forEach(function (tk) {
+      out += '<text class="pp-tick" x="' + xy(tk.value, ax[0]) + '" y="' + (h - 12) +
+        '" text-anchor="middle">' + esc(tk.label) + "</text>";
+    });
+    out += '<path class="pp-axis" d="M' + l + "," + t + "V" + (h - b) + "H" + (w - r) + '"/>';
+    var sel = userById(selectedId);
+    if (sel && sel.coords) {
+      out += '<path class="pp-guide" d="M' + l + "," + yy(sel.values[yIndex], ax[yIndex]) +
+        "H" + xy(sel.values[0], ax[0]) + "V" + (h - b) + '"/>';
+    }
+    p.svg.innerHTML = out;
+    positionMarks(view);
+  }
+
+  function redrawAll() {
+    if (!plots || !DATA) return;
+    var flat = DATA.view_mode === "flat2d" || DATA.dims < 3;
+    if (!flat) drawSpace();
+    drawFlat("xy");
+    if (!flat) drawFlat("xz");
+    positionMarks("xy");
+    if (!flat) positionMarks("xz");
+  }
+
+  // ---------- 点击命中 / 重叠消歧 ----------
+  function pickAt(view, ev, pos) {
+    if (!plots || !plots[view]) return;
+    var p = plots[view];
+    var rc = plotRect(p.el);
+    var x, y;
+    if (pos) { x = pos[0]; y = pos[1]; }
+    else if (ev && ev.clientX != null) { x = ev.clientX - rc.left; y = ev.clientY - rc.top; }
+    else return;
+    var candidates = visibleUsers().filter(function (u) {
+      if (!u.coords) return false;
+      var q = view === "space" ? project3D(u.coords) : project2D(view, u.coords);
+      var dx = q[0] - x, dy = q[1] - y;
+      return dx * dx + dy * dy <= 15 * 15;
+    });
+    // 点击标记时，也把同一坐标组的成员纳入（屏幕重合但距离计算正常即可）
+    if (!candidates.length) return;
+    if (candidates.length === 1) {
+      chooseUser(candidates[0].user_id);
+    } else {
+      showCandidates(candidates, x, y, p.el);
+    }
+  }
+
+  function showCandidates(list, x, y, host) {
+    closeCandidates();
+    var el = document.createElement("div");
+    el.className = "pp-cand";
+    var sorted = list.slice().sort(function (a, b) {
+      return String(a.user_id).localeCompare(String(b.user_id), "zh");
+    });
+    el.innerHTML = '<div class="pp-cand-title">该位置有 ' + sorted.length + ' 位用户，请选择</div>' +
+      sorted.map(function (u) {
+        return '<button type="button" data-uid="' + esc(u.user_id) + '">#' +
+          esc(u.user_id) + " " + esc(u.name) +
+          (u.school ? " · " + esc(u.school) : "") +
+          (u.major ? " · " + esc(u.major) : "") + "</button>";
+      }).join("") +
+      '<button type="button" class="pp-cand-close" data-close="1">取消</button>';
+    el.style.left = Math.max(4, Math.min(x + 10, (host.clientWidth || 240) - 225)) + "px";
+    el.style.top = Math.max(4, Math.min(y + 10, (host.clientHeight || 220) - 40)) + "px";
+    el.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      var b = ev.target.closest("button");
+      if (!b) return;
+      if (b.dataset.close) { closeCandidates(); return; }
+      if (b.dataset.uid) {
+        chooseUser(b.dataset.uid);
+        closeCandidates();
+      }
+    });
+    host.appendChild(el);
+    candidateEl = el;
+    setTimeout(function () {
+      document.addEventListener("click", closeCandidates, { once: true });
+    }, 0);
+  }
+
+  function closeCandidates() {
+    if (candidateEl && candidateEl.parentNode) candidateEl.parentNode.removeChild(candidateEl);
+    candidateEl = null;
+  }
+
+  function chooseUser(uid) {
+    var u = userById(uid);
+    if (!u) return;
+    selectedId = String(uid);
+    closeCandidates();
+    setValue({ event: "select_user", user_id: selectedId, data_revision: DATA.data_revision });
+    updateDetail();
+    updateSummary();
+    redrawAll();
+    setHeight();
+  }
+
+  // ---------- 头部 / 详情 ----------
+  function updateSummary() {
+    if (!DATA) return;
+    var total = DATA.total_count == null ? users().length : DATA.total_count;
+    var visible = DATA.visible_count == null ? users().length : DATA.visible_count;
+    var excluded = (DATA.excluded || []).length;
+    document.getElementById("pp-summary").innerHTML =
+      "可见 <b>" + visible + "</b> / " + total + " 个画像" +
+      (excluded ? " · 未显示 <b>" + excluded + "</b> 位（见页面下方原因）" : "");
+    document.getElementById("pp-mode").textContent = DATA.mode_label || "指标空间";
+    document.getElementById("pp-dim").textContent =
+      (DATA.view_mode === "flat2d" || DATA.dims < 3) ? "二维查看" : "三维联动";
+    var labels = DATA.axes || [];
+    document.getElementById("pp-3d-sub").textContent = labels.length >= 3
+      ? " " + labels[0].label + " × " + labels[1].label + " × " + labels[2].label : "";
+    document.getElementById("pp-xy-title").textContent = labels.length >= 2
+      ? labels[0].label + " × " + labels[1].label + " 投影" : "二维投影";
+    document.getElementById("pp-xz-title").textContent = labels.length >= 3
+      ? labels[0].label + " × " + labels[2].label + " 投影" : "二维投影";
+    var note = [];
+    if (DATA.notes && DATA.notes.length) note = note.concat(DATA.notes);
+    document.getElementById("pp-foot-note").textContent = note.join(" · ");
+  }
+
+  function updateDetail() {
+    var host = document.getElementById("pp-detail");
+    var u = selectedUser();
+    if (!u) {
+      host.innerHTML = '<div class="pp-avatar">—</div>' +
+        '<div class="pp-identity"><div class="pp-name">未选择用户</div>' +
+        '<div class="pp-meta">从三维、XY、XZ 任一视图点选，或使用上方人物选择器</div></div>';
+      return;
+    }
+    var initials = (u.name || "?").slice(0, 1);
+    var values = (DATA.axes || []).map(function (a, i) {
+      var val = u.display && u.display[i] != null ? u.display[i] : "—";
+      return '<div class="pp-value"><div class="pp-value-label">' + esc(a.label) +
+        "</div><b>" + esc(val) + "</b></div>";
+    }).join("");
+    var note = "";
+    if (!u.visible) {
+      note = '<div class="pp-detail-note pp-warn">当前所选指标不足' +
+        (u.missing_axes && u.missing_axes.length ? "（缺少 " + esc(u.missing_axes.join("、")) + "）" : "") +
+        "，无法在三张图中定位；没有伪造高亮，也没有切换到其他人。</div>";
+    }
+    host.innerHTML =
+      '<div class="pp-avatar">' + esc(initials) + "</div>" +
+      '<div class="pp-identity"><div class="pp-name">' + esc(u.name || "未填写姓名") + "</div>" +
+      '<div class="pp-meta">' + esc([u.school, u.major].filter(Boolean).join(" · ") || "学校/专业未填写") +
+      " · #" + esc(u.user_id) + "</div></div>" +
+      '<div class="pp-values">' + values + "</div>" + note;
+  }
+
+  // ---------- 渲染入口 ----------
+  function render(payload) {
+    if (!payload) return;
+    DATA = payload;
+    applyTheme(payload.theme);
+    if (!plots) initPlots();
+    root().classList.remove("pp-empty-mode");
+    document.getElementById("pp-empty").textContent = "";
+    if (payload.error) {
+      root().classList.add("pp-empty-mode");
+      document.getElementById("pp-empty").textContent = payload.error;
+      return;
+    }
+    var sig = [payload.data_revision, payload.mode, payload.view_mode, payload.dims,
+      (payload.axes || []).map(function (a) { return a.id; }).join(",")].join("|");
+    var revisionChanged = sig !== layoutSig;
+    var incoming = payload.selected_user_id == null ? null : String(payload.selected_user_id);
+    if (revisionChanged || incoming !== lastIncoming) {
+      if (incoming && (userById(incoming) || (payload.selected_user && String(payload.selected_user.user_id) === incoming))) {
+        selectedId = incoming;
+      } else if (!userById(selectedId)) {
+        var first = visibleUsers()[0];
+        selectedId = first ? String(first.user_id) : null;
+      }
+      lastIncoming = incoming;
+      layoutSig = sig;
+    }
+    if (!selectedId && visibleUsers().length) selectedId = String(visibleUsers()[0].user_id);
+    var flat = payload.view_mode === "flat2d" || payload.dims < 3;
+    root().classList.toggle("pp-flat", flat);
+    if (!visibleUsers().length) {
+      root().classList.add("pp-empty-mode");
+      document.getElementById("pp-empty").textContent =
+        "当前所选轴没有同时具备有效数值的用户。请换一组人人都有数据的轴，或补全用户信息；" +
+        "这里不会把缺失值补成 0。";
+    }
+    rebuildMarks();
+    if (!flat) drawSpace();
+    drawFlat("xy");
+    if (!flat) drawFlat("xz");
+    positionMarks("space");
+    positionMarks("xy");
+    positionMarks("xz");
+    updateSummary();
+    updateDetail();
+    setHeight();
+    requestAnimationFrame(setHeight);
+  }
+
+  window.addEventListener("message", function (event) {
+    var data = event.data || {};
+    if (data.type === "streamlit:render") render(data.args && data.args.payload);
+  });
+  window.addEventListener("resize", function () { redrawAll(); setHeight(); });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") closeCandidates();
+  });
+  setInterval(setHeight, 1500);
+})();
+</script>
+</body>
+</html>

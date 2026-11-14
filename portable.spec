@@ -31,15 +31,16 @@ for pkg in ("streamlit", "altair", "pandas", "numpy", "plotly", "pyarrow", "pack
 
 # 内置应用脚本：由 Streamlit 以脚本方式执行，所以作为数据文件带上
 datas.append(("app.py", "."))
-# 自定义 Streamlit 组件（第⑤步分析工作台，原生 HTML/CSS/SVG）
+# 自定义 Streamlit 组件（第⑤步分析工作台、画像广场联动投影台，原生 HTML/CSS/SVG）
 datas.append((os.path.join("components", "match_space"), os.path.join("components", "match_space")))
+datas.append((os.path.join("components", "profile_plaza"), os.path.join("components", "profile_plaza")))
 
 LOCAL_MODULES = [
     "config", "db", "schema", "formulas", "embedding", "user_profile", "recommend",
     "matching", "tasks", "verification", "generation", "delivery", "feedback",
     "pipeline", "loop", "platforms", "session", "crawler", "form_filler", "llm",
     "logging_setup", "theme", "viz", "login_status", "runtime_paths", "browser_runtime",
-    "persona", "workbench",
+    "persona", "workbench", "profile_plaza",
 ]
 hiddenimports += LOCAL_MODULES
 # Streamlit 1.66 起用 uvicorn/starlette 提供服务，这些是动态导入，显式声明
