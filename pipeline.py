@@ -4,6 +4,7 @@
 每一步的输出作为下一步的输入。
 """
 import json
+import numpy as np
 import config
 import db
 import verification
@@ -14,6 +15,7 @@ import generation
 import delivery
 import feedback
 import recommend
+from formulas import formula_2_cosine, formula_3_match_score, interval_feature
 
 
 def store_user(user_data):
@@ -151,6 +153,120 @@ def run_full_pipeline(user_data, llm=None, jobs=None):
         "task_count": len(task_ids),
         "delivery_report": report,
         "画像摘要": recommend.profile_summary(user_data),
+    }
+
+
+def latest_result():
+    """从数据库重建最近一次投递现场（刷新页面 / 重启程序后恢复第⑤⑥阶段用）。
+
+    只读不写：不新建用户、不建任务、不生成简历、不触发投递。
+    岗位顺序沿用建任务时的匹配分（`delivery_tasks.match_score` 降序，缺失时按任务号）。
+    s / δ 用当前画像与岗位向量**重算**（画像可能已被式五更新），匹配分 p 优先取
+    入库时记录的历史值，保证「上次投递时看到的名次」不被反馈悄悄改写。
+
+    返回与 `run_full_pipeline` 同构的 dict；没有历史记录时返回 None。
+    """
+    with db.get_conn() as conn:
+        row = conn.execute(
+            "SELECT user_id FROM delivery_tasks ORDER BY task_id DESC LIMIT 1").fetchone()
+        if row is None:
+            return None
+        user_id = row["user_id"]
+        u = conn.execute("SELECT * FROM user_records WHERE user_id=?", (user_id,)).fetchone()
+        if u is None:
+            return None
+        l0, l1, l3 = json.loads(u["l0"]), json.loads(u["l1"]), json.loads(u["l3"])
+        exps = [json.loads(r["fields"]) for r in conn.execute(
+            "SELECT fields FROM experience_items WHERE user_id=? ORDER BY exp_index",
+            (user_id,))]
+        user_data = {"l0": l0, "l1": l1, "l2": exps, "l3": l3}
+
+        task_rows = conn.execute(
+            "SELECT * FROM delivery_tasks WHERE user_id=? "
+            "ORDER BY COALESCE(match_score, -1) DESC, task_id", (user_id,)).fetchall()
+        field_maps = {r["task_id"]: json.loads(r["fields"]) for r in conn.execute(
+            "SELECT m.* FROM job_field_map m JOIN delivery_tasks d ON d.task_id=m.task_id "
+            "WHERE d.user_id=?", (user_id,))}
+        indicators = {r["task_id"]: json.loads(r["indicator"]) for r in conn.execute(
+            "SELECT i.* FROM task_indicators i JOIN delivery_tasks d ON d.task_id=i.task_id "
+            "WHERE d.user_id=?", (user_id,))}
+        job_rows = {}
+        for t in task_rows:
+            j = conn.execute("SELECT fields, embedding FROM jobs WHERE job_id=?",
+                             (t["job_id"],)).fetchone()
+            if j is not None:
+                job_rows[t["job_id"]] = (json.loads(j["fields"]), j["embedding"])
+        center = conn.execute("SELECT c_pos, c_neg FROM job_centers WHERE user_id=?",
+                              (user_id,)).fetchone()
+
+    prof = profile_mod.build_profile(user_id)
+    has_center = bool(center and center["c_pos"] and center["c_neg"])
+    c_pos = np.asarray(json.loads(center["c_pos"])) if has_center else None
+    c_neg = np.asarray(json.loads(center["c_neg"])) if has_center else None
+    exp_names = [e.get("名称", "经历%d" % i) for i, e in enumerate(exps)]
+
+    job_list, report = [], []
+    for t in task_rows:
+        job_fields, emb = job_rows.get(t["job_id"], ({}, None))
+        jv = np.asarray(json.loads(emb)) if emb else None
+        s = formula_2_cosine(prof["user_vec"], jv) if jv is not None else 0.0
+        delta = interval_feature(jv, c_pos, c_neg) if (jv is not None and has_center) else 0.0
+        if t["match_score"] is not None:
+            p = float(t["match_score"])
+        else:
+            p = float(formula_3_match_score(s, delta, config.W_S, config.W_DELTA, has_center))
+        gammas = []
+        if jv is not None and prof["K"]:
+            gammas, _sims = generation.allocate_experiences(prof, jv, prof["weights"])
+        indicator = indicators.get(t["task_id"])
+        included = ([i for i, v in enumerate(indicator) if v and i < len(exp_names)]
+                    if indicator else [])
+        grade, grade_score = recommend.match_grade(user_data, job_fields)
+        greet = recommend.personalized_greeting(user_data, job_fields, config.GREETING_TEMPLATE)
+        job_list.append({
+            "task_id": t["task_id"],
+            "job_id": t["job_id"],
+            "岗位名称": job_fields.get("岗位名称", t["job_name"] or ""),
+            "单位名称": job_fields.get("单位名称", t["unit_name"] or ""),
+            "薪资": job_fields.get("薪资", ""),
+            "行业": job_fields.get("行业", ""),
+            "学历": job_fields.get("学历", ""),
+            "岗位链接": job_fields.get("岗位链接", t["job_link"] or ""),
+            "score": round(p, 4),
+            "匹配分构成": {
+                "余弦相似度s": round(float(s), 4),
+                "间隔特征δ": round(float(delta), 4),
+                "w_s": config.W_S,
+                "w_δ": config.W_DELTA if has_center else 0,
+                "匹配分p": round(p, 4),
+            },
+            "等级": grade,
+            "等级分": grade_score,
+            "推荐理由": recommend.recommend_reasons(user_data, job_fields),
+            "分数明细": recommend.score_breakdown(user_data, job_fields),
+            "简历内容": field_maps.get(t["task_id"], {}),
+            "写入经历": [exp_names[i] for i in included],
+            "写入经历索引": included,
+            "经历分配": [(exp_names[i], gammas[i])
+                        for i in range(min(len(exp_names), len(gammas)))],
+        })
+        report.append({"task_id": t["task_id"],
+                       "岗位": job_list[-1]["岗位名称"],
+                       "单位": job_list[-1]["单位名称"],
+                       "岗位链接": job_list[-1]["岗位链接"],
+                       "状态": t["status"],
+                       "招呼语": greet})
+
+    return {
+        "ok": True,
+        "restored": True,
+        "user_id": user_id,
+        "weights": prof["weights"].tolist(),
+        "target_jobs": job_list,
+        "task_count": len(job_list),
+        "delivery_report": report,
+        "画像摘要": recommend.profile_summary(user_data),
+        "user_data": user_data,
     }
 
 

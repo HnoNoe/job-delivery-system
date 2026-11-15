@@ -81,7 +81,7 @@ def run_app(target, seed_jobs=False):
     try:
         at = AppTest.from_file(target)
         if seed_jobs:
-            # 预置第③步检索结果，触发 app.py 中 theme.jobs_table(...) 的渲染分支
+            # 预置第③阶段检索结果，并把向导停在「③检索岗位」页，触发 jobs_table 渲染分支
             at.session_state["jobs"] = [
                 {"岗位名称": "Python 后端开发", "单位名称": "示例科技", "城市": "北京",
                  "薪资": "15-25K", "学历": "本科", "经验": "1-3年", "行业": "互联网",
@@ -89,8 +89,12 @@ def run_app(target, seed_jobs=False):
                 {"岗位名称": "后端工程师", "单位名称": "测试公司", "城市": "北京",
                  "薪资": "18-30K", "学历": "本科", "经验": "3-5年", "行业": "企业服务"},
             ]
+            at.session_state["confirmed_user_data"] = {
+                "l0": {}, "l1": {}, "l2": [], "l3": {"意向城市": "北京"}}
+            at.session_state["wizard_page"] = 2
         at.run(timeout=90)
-        html_tables = sum(1 for m in at.markdown if "jtable" in (m.value or ""))
+        html_tables = sum(1 for m in at.markdown
+                          if "jtable" in (m.value or "") and "<table" in (m.value or ""))
         return ([str(e.value) for e in at.exception], len(at.dataframe),
                 cap.deprecation_hits, html_tables)
     finally:

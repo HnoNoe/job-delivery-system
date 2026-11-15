@@ -494,11 +494,15 @@ class RegressionTests(unittest.TestCase):
         at.run(timeout=30)
         self.assertFalse(at.exception)
         next(b for b in at.button if b.label == "✅ 确认信息，进入下一步").click().run(timeout=30)
+        # 分阶段翻页：确认信息后自动进入第②阶段，手动跳到第④阶段（索引 3）
+        at.session_state["wizard_page"] = 3
+        at.run(timeout=30)
         next(b for b in at.button if b.label == "🚀 准备投递材料").click().run(timeout=30)
         self.assertFalse(at.exception)
         result = at.session_state["result"]
         self.assertGreater(result["task_count"], 0)
         tid = result["target_jobs"][0]["task_id"]
+        self.assertEqual(at.session_state["wizard_page"], 4)  # 生成材料后自动翻到第⑤阶段
         self.assertTrue(at.button(key="fb1_%d" % tid).disabled)
         at.button(key="manual_%d" % tid).click().run(timeout=30)
         self.assertFalse(at.exception)
@@ -512,6 +516,9 @@ class RegressionTests(unittest.TestCase):
         at = AppTest.from_file(str(BASE / "app.py")).run(timeout=30)
         next(b for b in at.button if b.label == "✅ 确认信息，进入下一步").click().run(timeout=30)
         self.assertTrue(at.session_state["info_confirmed"])
+        self.assertEqual(at.session_state["wizard_page"], 1)  # 确认后自动翻页
+        at.session_state["wizard_page"] = 0  # 回到第①阶段再改信息
+        at.run(timeout=30)
         at.text_input(key="l0_姓名").set_value("新姓名").run(timeout=30)
         self.assertFalse(at.session_state["info_confirmed"])
 
@@ -525,6 +532,7 @@ class RegressionTests(unittest.TestCase):
         at.session_state["result"] = result
         at.session_state["prepared_user_data"] = data
         at.session_state["rematch"] = []
+        at.session_state["wizard_page"] = 4  # 第⑤阶段才是投递/反馈工作台
         at.run(timeout=30)
         self.assertFalse(at.exception)
         at.button(key="btn_rematch").click().run(timeout=30)
