@@ -94,13 +94,23 @@ PLAZA = {
         "surface": "#F7F8FC", "panel": "#FFFFFF", "subtle": "#F0F2F8",
         "ink": "#202A3C", "sub": "#69758A", "line": "#E5E9F1", "grid": "#CBD4E3",
         "dot": "#929FBB", "accent": "#6256DE", "wash": "#EEEBFC",
+        # 定位标记强调色：暖橙与冷调中性点/靛蓝主色形成明确区分，用于「高亮配色」方案
+        "spot": "#E2601A", "spot_glow": "rgba(226, 96, 26, .26)", "spot_wash": "#FCEBDF",
     },
     "dark": {
         "surface": "#10151F", "panel": "#171D29", "subtle": "#202837",
         "ink": "#E8EDF7", "sub": "#9BA9C1", "line": "#303A4E", "grid": "#3A4A65",
         "dot": "#8293B2", "accent": "#AD9CFF", "wash": "#302947",
+        "spot": "#FFA057", "spot_glow": "rgba(255, 160, 87, .30)", "spot_wash": "#3A2A1C",
     },
 }
+
+# 定位标记的两种强调方案（见画像广场工具栏）
+MARKER_STYLES = {
+    "shape": "① 形状强调（菱形 + 准星环）",
+    "color": "② 高亮配色（暖橙高亮）",
+}
+DEFAULT_MARKER_STYLE = "shape"
 
 
 def plaza_colors():

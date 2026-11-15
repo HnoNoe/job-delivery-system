@@ -491,7 +491,13 @@ def resolve_selected(space: dict, selected_user_id) -> tuple:
     return fallback, "原定位用户已不在当前数据集中，已回到 %s。" % name
 
 
-def build_payload(space: dict, selected_user_id, view_mode: str = "linked3d") -> dict:
+def resolve_marker_style(style) -> str:
+    """定位标记强调方案：未知/空值回退到默认方案（不抛错）。"""
+    return style if style in theme.MARKER_STYLES else theme.DEFAULT_MARKER_STYLE
+
+
+def build_payload(space: dict, selected_user_id, view_mode: str = "linked3d",
+                  marker_style: str = None) -> dict:
     """把空间 + 选中态整理为组件参数；选中用户缺轴时保留详情但不伪造高亮。"""
     axes = (space or {}).get("axes") or []
     profiles = (space or {}).get("profiles") or {}
@@ -543,6 +549,8 @@ def build_payload(space: dict, selected_user_id, view_mode: str = "linked3d") ->
         "selection_note": selection_note,
         "notes": (space or {}).get("notes") or [],
         "theme": theme.plaza_colors(),
+        "marker_style": resolve_marker_style(marker_style),
+        "marker_label": theme.MARKER_STYLES[resolve_marker_style(marker_style)],
         "labels": {"subtitle": "同一用户在三个视图中同步高亮；原始数值不修改"},
     }
     if (space or {}).get("error"):

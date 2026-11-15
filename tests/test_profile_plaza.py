@@ -124,6 +124,25 @@ class MetricSpaceTests(unittest.TestCase):
         self.assertEqual(pp.parse_event(
             {"event": "select_user", "user_id": "1", "data_revision": "rev-1"}, space), "1")
 
+    def test_marker_style_defaults_and_unknown_values(self):
+        df = _df([_user(1)])
+        space = pp.build_metric_space(df, ("GPA", "技能数", "经历段数"))
+        self.assertEqual(pp.build_payload(space, "1")["marker_style"], "shape")
+        self.assertEqual(pp.build_payload(space, "1", marker_style="color")["marker_style"], "color")
+        for bogus in ("", "star", None, "SHAPE"):
+            payload = pp.build_payload(space, "1", marker_style=bogus)
+            self.assertIn(payload["marker_style"], ("shape", "color"))
+            self.assertTrue(payload["marker_label"])
+        self.assertEqual(set(pp.theme.MARKER_STYLES), {"shape", "color"})
+
+    def test_marker_palette_has_distinct_spot_colors(self):
+        for key in ("light", "dark"):
+            palette = pp.theme.PLAZA[key]
+            self.assertIn("spot", palette)
+            self.assertNotEqual(palette["spot"], palette["dot"])
+            self.assertNotEqual(palette["spot"], palette["accent"])
+            self.assertIn("spot_glow", palette)
+
     def test_event_revision_and_visible_id_validation(self):
         df = _df([_user(1), _user(2, gpa=None)])
         space = pp.build_metric_space(df, ("GPA", "技能数", "经历段数"))

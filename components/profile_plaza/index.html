@@ -8,6 +8,8 @@
     --pp-surface: #F7F8FC; --pp-panel: #FFFFFF; --pp-subtle: #F0F2F8;
     --pp-ink: #202A3C; --pp-sub: #69758A; --pp-line: #E5E9F1;
     --pp-grid: #CBD4E3; --pp-dot: #929FBB; --pp-accent: #6256DE; --pp-wash: #EEEBFC;
+    --pp-spot: #E2601A; --pp-spot-glow: rgba(226, 96, 26, .26); --pp-spot-wash: #FCEBDF;
+    --pp-strong: var(--pp-accent);
     background: var(--pp-surface); color: var(--pp-ink);
     font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
     font-size: 13px; line-height: 1.55;
@@ -44,28 +46,65 @@
   .pp-plane { fill: var(--pp-subtle); opacity: .55; }
   .pp-gridline { stroke: var(--pp-grid); stroke-width: 1; fill: none; opacity: .55; }
   .pp-edge { stroke: var(--pp-grid); stroke-width: 1; fill: none; opacity: .8; }
-  .pp-guide { stroke: var(--pp-accent); stroke-width: 1.1; stroke-dasharray: 3 4;
-    fill: none; opacity: .5; }
+  .pp-guide { stroke: var(--pp-strong); stroke-width: 1.2; stroke-dasharray: 3 4;
+    fill: none; opacity: .62; }
   .pp-axis { stroke: var(--pp-line); stroke-width: 1; fill: none; }
   .pp-tick { fill: var(--pp-sub); font-size: 10.5px; font-family: inherit; }
   .pp-axis-label { fill: var(--pp-sub); font-size: 10.5px; font-family: inherit; }
-  .pp-mark { appearance: none; border: 0; position: absolute; width: 28px; height: 28px;
+  .pp-mark { appearance: none; border: 0; position: absolute; width: 30px; height: 30px;
     border-radius: 50%; background: none; padding: 0; transform: translate(-50%, -50%);
     display: grid; place-items: center; z-index: 2; cursor: pointer; color: var(--pp-panel);
     font-family: inherit; font-size: 10px; font-weight: 600; }
-  .pp-mark:focus-visible { outline: 2px solid var(--pp-accent); outline-offset: 2px; }
-  .pp-dot { width: 7px; height: 7px; display: grid; place-items: center;
+  .pp-mark:focus-visible { outline: 2px solid var(--pp-strong); outline-offset: 3px; }
+  .pp-dot { width: 7px; height: 7px; display: block;
     background: var(--pp-dot); border-radius: 50%;
     box-shadow: 0 0 0 2px var(--pp-panel); opacity: .92; }
-  .pp-mark.pp-group .pp-dot { width: 17px; height: 17px; font-size: 9.5px; }
+  .pp-mark.pp-group .pp-dot { width: 15px; height: 15px; }
+  .pp-count { position: absolute; top: -3px; right: -3px; min-width: 14px; height: 14px;
+    border-radius: 999px; background: var(--pp-panel); border: 1px solid var(--pp-line);
+    color: var(--pp-sub); font-size: 9px; line-height: 12px; text-align: center;
+    padding: 0 3px; pointer-events: none; transform: translate(40%, -40%); }
   .pp-mark.pp-active { z-index: 12; }
-  .pp-mark.pp-active .pp-dot { width: 11px; height: 11px; background: var(--pp-accent);
-    opacity: 1; box-shadow: 0 0 0 3px var(--pp-panel), 0 0 0 4px var(--pp-accent); }
-  .pp-mark.pp-active.pp-group .pp-dot { width: 20px; height: 20px; }
+  .pp-mark.pp-active .pp-dot { opacity: 1; }
+  .pp-mark.pp-active .pp-count { border-color: var(--pp-strong); color: var(--pp-strong); }
+
+  /* ---- 定位标记方案①：形状强调（菱形 + 准星环）---- */
+  #pp-root[data-marker="shape"] .pp-mark.pp-active .pp-dot {
+    width: 16px; height: 16px; border-radius: 1px; background: var(--pp-accent);
+    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+    filter: drop-shadow(0 0 1.5px var(--pp-panel)) drop-shadow(0 1px 2px rgba(15, 23, 42, .35));
+    box-shadow: none; }
+  #pp-root[data-marker="shape"] .pp-mark.pp-active.pp-group .pp-dot { width: 20px; height: 20px; }
+  #pp-root[data-marker="shape"] .pp-mark.pp-active::before {
+    content: ""; position: absolute; width: 28px; height: 28px; border-radius: 50%;
+    border: 1.5px solid var(--pp-accent); background: var(--pp-wash); opacity: .85;
+    pointer-events: none; }
+  #pp-root[data-marker="shape"] .pp-mark.pp-active.pp-group::before {
+    width: 33px; height: 33px; }
+  #pp-root[data-marker="shape"] .pp-mark.pp-active::after {
+    content: ""; position: absolute; width: 21px; height: 21px; pointer-events: none;
+    background:
+      linear-gradient(var(--pp-accent), var(--pp-accent)) center/1px 100% no-repeat,
+      linear-gradient(var(--pp-accent), var(--pp-accent)) center/100% 1px no-repeat;
+    opacity: .45; }
+
+  /* ---- 定位标记方案②：高亮配色（暖橙 + 光晕）---- */
+  #pp-root[data-marker="color"] .pp-mark.pp-active .pp-dot {
+    width: 12px; height: 12px; border-radius: 50%; background: var(--pp-spot);
+    box-shadow: 0 0 0 2.5px var(--pp-panel), 0 0 0 4px var(--pp-spot),
+                0 0 0 9px var(--pp-spot-glow); }
+  #pp-root[data-marker="color"] .pp-mark.pp-active.pp-group .pp-dot { width: 18px; height: 18px; }
+  #pp-root[data-marker="color"] { --pp-strong: var(--pp-spot); }
+  #pp-root[data-marker="color"] .pp-label { border-color: var(--pp-spot); }
+  #pp-root[data-marker="color"] .pp-guide { stroke: var(--pp-spot); opacity: .65; }
+
   .pp-label { position: absolute; transform: translate(-50%, -160%); z-index: 14;
     background: var(--pp-panel); border: 1px solid var(--pp-line); border-radius: 7px;
-    padding: 2px 7px; font-size: 11px; color: var(--pp-ink); white-space: nowrap;
-    box-shadow: 0 2px 8px rgba(20, 28, 46, .10); pointer-events: none; }
+    padding: 2px 7px 2px 6px; font-size: 11px; color: var(--pp-ink); white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(20, 28, 46, .10); pointer-events: none;
+    display: flex; align-items: center; gap: 5px; }
+  .pp-label::before { content: ""; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--pp-strong); flex: none; }
   .pp-reset { background: var(--pp-panel); border: 1px solid var(--pp-line); border-radius: 7px;
     padding: 4px 9px; color: var(--pp-sub); font: inherit; font-size: 10.5px;
     white-space: nowrap; cursor: pointer; }
@@ -194,7 +233,8 @@
   var layoutSig = "";
   var resizeObserved = false;
 
-  var COLORS = ["surface", "panel", "subtle", "ink", "sub", "line", "grid", "dot", "accent", "wash"];
+  var COLORS = ["surface", "panel", "subtle", "ink", "sub", "line", "grid", "dot", "accent", "wash",
+                "spot", "spot_glow", "spot_wash"];
 
   function esc(value) {
     return String(value == null ? "" : value)
@@ -352,7 +392,8 @@
               return a.label + " " + (u.display ? u.display[i] : "");
             }).join("，");
         }).join("\n");
-        btn.innerHTML = '<span class="pp-dot">' + (group.length > 1 ? group.length : "") + "</span>";
+        btn.innerHTML = '<span class="pp-dot"></span>' +
+          (group.length > 1 ? '<span class="pp-count">' + group.length + "</span>" : "");
         btn.addEventListener("click", function (ev) {
           ev.stopPropagation();
           var pos;
@@ -658,6 +699,7 @@
     if (!payload) return;
     DATA = payload;
     applyTheme(payload.theme);
+    root().setAttribute("data-marker", payload.marker_style === "color" ? "color" : "shape");
     if (!plots) initPlots();
     root().classList.remove("pp-empty-mode");
     document.getElementById("pp-empty").textContent = "";

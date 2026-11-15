@@ -53,6 +53,16 @@ _mode_label = _c1.radio("空间模式", ["指标空间", "语义空间（式一 
 mode = "metrics" if _mode_label == "指标空间" else "semantic"
 _view3d = _c2.toggle("三维联动模式（关闭为二维查看）", value=True)
 
+# 定位标记：让用户一眼在三张图里找到自己（方案可切换，便于对比效果）
+_marker_keys = list(theme.MARKER_STYLES)
+marker_style = st.radio(
+    "定位标记", _marker_keys, horizontal=True,
+    format_func=lambda k: theme.MARKER_STYLES[k],
+    index=_marker_keys.index(theme.DEFAULT_MARKER_STYLE),
+    help="① 用形状区分（菱形 + 准星环）；② 用醒目配色区分（暖橙 + 光晕）。"
+         "两种方案都只改变选中用户的呈现，不改动坐标与数值。")
+st.caption("定位标记只作用于当前选中用户；其余用户始终保持中性灰蓝圆点，避免整图花掉。")
+
 if mode == "metrics":
     _axis_ids = list(profile_plaza.METRIC_AXES)
 
@@ -124,7 +134,7 @@ if space.get("error"):
 _view_mode = "linked3d" if _view3d else "flat2d"
 if space.get("dims", 3) < 3 and _view3d:
     st.info("PC3 不可用（有效秩不足），已自动降级为二维投影；不会补造第三个维度。")
-payload = profile_plaza.build_payload(space, _selected, _view_mode)
+payload = profile_plaza.build_payload(space, _selected, _view_mode, marker_style=marker_style)
 
 _event = profile_plaza.render(payload)
 _picked = profile_plaza.parse_event(_event, space)
