@@ -282,5 +282,45 @@ class PageSmokeTests(unittest.TestCase):
         self.assertIn("还没有用户数据", texts)
 
 
+class ThemePreferenceTests(unittest.TestCase):
+    """夜间模式开关：偏好落地与优先级（会话 → 文件 → config）。"""
+
+    def setUp(self):
+        import theme
+        self.theme = theme
+        self.path = theme._pref_path()
+        self.path.unlink(missing_ok=True)
+
+    def tearDown(self):
+        self.path.unlink(missing_ok=True)
+
+    def test_saved_preference_survives_reload(self):
+        # 新会话没有 session_state 覆盖，读到文件里的偏好 → 刷新后仍是夜间
+        self.theme._write_pref(True)
+        self.assertTrue(self.theme.is_dark())
+        self.theme._write_pref(False)
+        self.assertFalse(self.theme.is_dark())
+
+    def test_falls_back_to_config_when_no_preference(self):
+        import streamlit as st
+        try:
+            expected = str(st.get_option("theme.base")).lower() == "dark"
+        except Exception:
+            expected = False
+        self.assertEqual(self.theme.is_dark(), expected)
+
+    def test_corrupt_preference_file_is_ignored(self):
+        import streamlit as st
+
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text("{not json", encoding="utf-8")
+        self.assertIsNone(self.theme._read_pref())
+        try:
+            expected = str(st.get_option("theme.base")).lower() == "dark"
+        except Exception:
+            expected = False
+        self.assertEqual(self.theme.is_dark(), expected)
+
+
 if __name__ == "__main__":
     unittest.main()

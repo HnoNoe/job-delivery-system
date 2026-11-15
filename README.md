@@ -111,7 +111,19 @@ python start.py --foreground            # 前台运行，Ctrl+C 停止
 - 点选重叠（三维同坐标或二维投影重合）会弹出候选人物列表消歧，同名用户按编号/学校/专业区分；
 - 数据与空间构造位于 `profile_plaza.py`，前端在 `components/profile_plaza/index.html`；测试见 `tests/test_profile_plaza.py`。
 
-暗色主题下先禁用 `.streamlit/config.toml` 的 `theme.base = "light"`（或启动时传 `--theme.base dark`），页面与组件均使用 `theme.plaza_colors()` 的暗色令牌。
+### 夜间模式（顶栏图标开关）
+
+页面右上角、`Deploy` / `⋮` 左侧有一个月亮/太阳图标（`theme.theme_toggle`）：
+
+- 点一下在亮色与夜间之间切换，图标随之变成太阳/月亮；图表、画像广场三维组件、状态徽标一起换主题；
+- 图标由同源脚本放进 `[data-testid="stToolbarActions"]`，与 Deploy、⋮、运行中的 Stop/Rerun 同排由 flex 排布，
+  **不会覆盖或抢占这些已有控件**；脚本不可用时按钮退回正文顶部右对齐的普通位置；
+- 选择会写入运行目录的 `data/ui_prefs.json`，刷新页面、切换页面后仍然生效；
+- 优先级：本次会话手动切换 → `data/ui_prefs.json` → `.streamlit/config.toml` 的 `theme.base`（或 `--theme.base` 启动参数）。
+  删除该文件即回到配置默认值。
+
+> 说明：Streamlit 的 `theme.base` 不支持运行时修改，因此夜间模式由 `theme.py` 的暗色令牌 + CSS 覆盖实现；
+> 表格（canvas 绘制、跟随 Streamlit 主题）在夜间模式下用 `invert/hue-rotate` 做反相处理，颜色语义（红绿徽标）可能略有偏移。
 
 配置环境变量后再启动（不会自动加载 `.env` 文件）：
 

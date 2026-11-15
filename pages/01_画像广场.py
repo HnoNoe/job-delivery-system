@@ -13,17 +13,8 @@ import theme
 import viz
 
 st.set_page_config(page_title="用户画像广场 · 联动投影台", page_icon="🧭", layout="wide")
-theme.apply()
+theme.apply()   # 同时注入主题 CSS 与右上角的夜间模式开关
 db.init_db()
-
-# Streamlit 的顶栏背景取自 body（而非 .stApp）；显式暗色主题时随页面一起转暗，
-# 避免出现“正文暗、顶栏白”的混合主题。颜色仍来自 theme.plaza_colors()。
-if theme.is_dark():
-    _plaza_surface = theme.plaza_colors()["surface"]
-    st.markdown(
-        "<style>html, body, [data-testid='stHeader'], [data-testid='stToolbar'] "
-        "{ background: %s !important; }</style>" % _plaza_surface,
-        unsafe_allow_html=True)
 
 st.markdown("## 🧭 用户画像广场")
 st.caption("群体分布与个体定位：左侧三维总览 + 右侧 XY / XZ 投影；"
