@@ -496,37 +496,60 @@ def resolve_marker_style(style) -> str:
     return style if style in theme.MARKER_STYLES else theme.DEFAULT_MARKER_STYLE
 
 
+def _user_payload(profiles, axes, uid, visible_ids):
+    """单个用户在 payload 里的呈现数据（不含选中/自己的语义）。"""
+    prof = (profiles or {}).get(uid)
+    if not prof:
+        return None
+    values = list(prof.get("values") or [])
+    if len(values) < len(axes):
+        values += [None] * (len(axes) - len(values))
+    display = []
+    for axis, value in zip(axes, values):
+        display.append(_value_label(axis["id"], value) if value is not None else "—")
+    missing = [axis["label"] for axis, value in zip(axes, values) if value is None]
+    return {
+        "user_id": uid,
+        "name": prof.get("name") or ("用户%s" % uid),
+        "school": prof.get("school") or "",
+        "major": prof.get("major") or "",
+        "values": [None if v is None else round(float(v), 6) for v in values],
+        "display": display,
+        "visible": uid in visible_ids,
+        "missing_axes": missing,
+    }
+
+
 def build_payload(space: dict, selected_user_id, view_mode: str = "linked3d",
-                  marker_style: str = None) -> dict:
-    """把空间 + 选中态整理为组件参数；选中用户缺轴时保留详情但不伪造高亮。"""
+                  marker_style: str = None, self_user_id=None) -> dict:
+    """把空间 + 选中态 + 「我」整理为组件参数。
+
+    selected_user_id：正在查看/定位的对象（详情带数值）。
+    self_user_id：正在使用本功能的用户（“我”），始终用强调标记画出，
+                  与选中对象相互独立；缺当前轴时如实说明、不伪造位置。
+    """
     axes = (space or {}).get("axes") or []
     profiles = (space or {}).get("profiles") or {}
     selected, selection_note = resolve_selected(space, selected_user_id)
     visible_ids = {u["user_id"] for u in (space or {}).get("users") or []}
-    selected_visible = selected in visible_ids
-    selected_payload = None
-    if selected and selected in profiles:
-        prof = profiles[selected]
-        values = list(prof.get("values") or [])
-        if len(values) < len(axes):
-            values += [None] * (len(axes) - len(values))
-        display = []
-        for axis, value in zip(axes, values):
-            display.append(_value_label(axis["id"], value) if value is not None else "—")
-        missing = [axis["label"] for axis, value in zip(axes, values) if value is None]
-        selected_payload = {
-            "user_id": selected,
-            "name": prof.get("name") or ("用户%s" % selected),
-            "school": prof.get("school") or "",
-            "major": prof.get("major") or "",
-            "values": [None if v is None else round(float(v), 6) for v in values],
-            "display": display,
-            "visible": selected_visible,
-            "missing_axes": missing,
-        }
-        if not selected_visible and not selection_note:
-            selection_note = ("当前所选指标不足（缺少 %s），无法在三张图中定位；"
-                              "可换一组有数据的轴，或补全资料。" % "、".join(missing or ["所需轴"]))
+    selected_payload = _user_payload(profiles, axes, selected, visible_ids) if selected else None
+    if selected_payload and not selected_payload["visible"] and not selection_note:
+        selection_note = ("当前所选指标不足（缺少 %s），无法在三张图中定位；"
+                          "可换一组有数据的轴，或补全资料。"
+                          % "、".join(selected_payload["missing_axes"] or ["所需轴"]))
+
+    # 「我」：不在数据集里就不画（不猜测），在但缺轴则给出说明
+    self_uid = _id(self_user_id) if self_user_id not in (None, "") else None
+    self_payload = _user_payload(profiles, axes, self_uid, visible_ids) if self_uid else None
+    self_note = ""
+    if self_uid and self_payload is None:
+        self_note = "当前用户 #%s 不在本页数据集中，无法标出「我」的位置。" % self_uid
+        self_payload = None
+    elif self_payload and not self_payload["visible"]:
+        self_note = ("你（%s）在当前所选轴上缺少 %s，未能定位；"
+                     "换一组有数据的轴即可看到自己的位置。"
+                     % (self_payload["name"], "、".join(self_payload["missing_axes"] or ["所需轴"])))
+
     dims = int((space or {}).get("dims") or 0)
     mode = (space or {}).get("mode") or "metrics"
     view = view_mode if view_mode in ("linked3d", "flat2d") else "linked3d"
@@ -544,14 +567,18 @@ def build_payload(space: dict, selected_user_id, view_mode: str = "linked3d",
         "total_count": int((space or {}).get("total_count") or 0),
         "visible_count": int((space or {}).get("visible_count") or 0),
         "selected_user_id": selected,
-        "selected_visible": selected_visible,
+        "selected_visible": bool(selected_payload and selected_payload["visible"]),
         "selected_user": selected_payload,
         "selection_note": selection_note,
+        "self_user_id": self_uid if self_payload else None,
+        "self_visible": bool(self_payload and self_payload["visible"]),
+        "self_user": self_payload,
+        "self_note": self_note,
         "notes": (space or {}).get("notes") or [],
         "theme": theme.plaza_colors(),
         "marker_style": resolve_marker_style(marker_style),
         "marker_label": theme.MARKER_STYLES[resolve_marker_style(marker_style)],
-        "labels": {"subtitle": "同一用户在三个视图中同步高亮；原始数值不修改"},
+        "labels": {"subtitle": "「我」始终用强调标记；选中对象用虚线环 + 姓名"},
     }
     if (space or {}).get("error"):
         payload["error"] = space["error"]

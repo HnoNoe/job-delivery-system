@@ -66,37 +66,46 @@
     padding: 0 3px; pointer-events: none; transform: translate(40%, -40%); }
   .pp-mark.pp-active { z-index: 12; }
   .pp-mark.pp-active .pp-dot { opacity: 1; }
-  .pp-mark.pp-active .pp-count { border-color: var(--pp-strong); color: var(--pp-strong); }
 
-  /* ---- 定位标记方案①：形状强调（菱形 + 准星环）---- */
-  #pp-root[data-marker="shape"] .pp-mark.pp-active .pp-dot {
-    width: 16px; height: 16px; border-radius: 1px; background: var(--pp-accent);
+  /* ---- 「我」的强调标记：方案①形状（菱形 + 准星环）---- */
+  .pp-self { appearance: none; border: 0; background: none; position: absolute;
+    width: 40px; height: 40px; transform: translate(-50%, -50%); display: grid;
+    place-items: center; padding: 0; z-index: 20; cursor: pointer; }
+  .pp-self:focus-visible { outline: 2px solid var(--pp-strong); outline-offset: 4px; }
+  .pp-self-dot { display: block; }
+  #pp-root[data-marker="shape"] .pp-self-dot {
+    width: 16px; height: 16px; background: var(--pp-accent);
     clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
-    filter: drop-shadow(0 0 1.5px var(--pp-panel)) drop-shadow(0 1px 2px rgba(15, 23, 42, .35));
-    box-shadow: none; }
-  #pp-root[data-marker="shape"] .pp-mark.pp-active.pp-group .pp-dot { width: 20px; height: 20px; }
-  #pp-root[data-marker="shape"] .pp-mark.pp-active::before {
-    content: ""; position: absolute; width: 28px; height: 28px; border-radius: 50%;
+    filter: drop-shadow(0 0 1.5px var(--pp-panel)) drop-shadow(0 1px 2px rgba(15, 23, 42, .35)); }
+  #pp-root[data-marker="shape"] .pp-self::before {
+    content: ""; position: absolute; width: 29px; height: 29px; border-radius: 50%;
     border: 1.5px solid var(--pp-accent); background: var(--pp-wash); opacity: .85;
     pointer-events: none; }
-  #pp-root[data-marker="shape"] .pp-mark.pp-active.pp-group::before {
-    width: 33px; height: 33px; }
-  #pp-root[data-marker="shape"] .pp-mark.pp-active::after {
-    content: ""; position: absolute; width: 21px; height: 21px; pointer-events: none;
+  #pp-root[data-marker="shape"] .pp-self::after {
+    content: ""; position: absolute; width: 22px; height: 22px; pointer-events: none;
     background:
       linear-gradient(var(--pp-accent), var(--pp-accent)) center/1px 100% no-repeat,
       linear-gradient(var(--pp-accent), var(--pp-accent)) center/100% 1px no-repeat;
     opacity: .45; }
 
-  /* ---- 定位标记方案②：高亮配色（暖橙 + 光晕）---- */
-  #pp-root[data-marker="color"] .pp-mark.pp-active .pp-dot {
-    width: 12px; height: 12px; border-radius: 50%; background: var(--pp-spot);
-    box-shadow: 0 0 0 2.5px var(--pp-panel), 0 0 0 4px var(--pp-spot),
-                0 0 0 9px var(--pp-spot-glow); }
-  #pp-root[data-marker="color"] .pp-mark.pp-active.pp-group .pp-dot { width: 18px; height: 18px; }
+  /* ---- 「我」的强调标记：方案②高亮配色（暖橙 + 光晕）---- */
   #pp-root[data-marker="color"] { --pp-strong: var(--pp-spot); }
-  #pp-root[data-marker="color"] .pp-label { border-color: var(--pp-spot); }
-  #pp-root[data-marker="color"] .pp-guide { stroke: var(--pp-spot); opacity: .65; }
+  #pp-root[data-marker="color"] .pp-self-dot {
+    width: 13px; height: 13px; border-radius: 50%; background: var(--pp-spot);
+    box-shadow: 0 0 0 2.5px var(--pp-panel), 0 0 0 4px var(--pp-spot),
+                0 0 0 10px var(--pp-spot-glow); }
+
+  .pp-self-label { position: absolute; transform: translate(-50%, -215%); z-index: 22;
+    background: var(--pp-panel); border: 1px solid var(--pp-strong); color: var(--pp-ink);
+    border-radius: 999px; padding: 1px 8px; font-size: 10.5px; font-weight: 600;
+    white-space: nowrap; pointer-events: none; box-shadow: 0 2px 8px rgba(20, 28, 46, .14); }
+  .pp-self-label b { color: var(--pp-strong); font-weight: 700; }
+
+  /* ---- 正在查看的对象：中性虚线环（不抢「我」的强调）---- */
+  .pp-selring { position: absolute; width: 24px; height: 24px; border-radius: 50%;
+    border: 1.5px dashed var(--pp-sub); transform: translate(-50%, -50%);
+    pointer-events: none; z-index: 16; opacity: .85; }
+  .pp-guide.pp-soft { stroke: var(--pp-sub); stroke-width: 1; opacity: .42; }
 
   .pp-label { position: absolute; transform: translate(-50%, -160%); z-index: 14;
     background: var(--pp-panel); border: 1px solid var(--pp-line); border-radius: 7px;
@@ -116,6 +125,9 @@
     background: var(--pp-wash); color: var(--pp-accent); display: grid; place-items: center;
     font-size: 15px; font-weight: 600; }
   .pp-identity { min-width: 160px; }
+  .pp-you { display: inline-block; margin-left: 2px; padding: 0 6px; border-radius: 999px;
+    background: var(--pp-strong); color: var(--pp-panel); font-size: 10px; font-weight: 700;
+    line-height: 16px; vertical-align: 2px; }
   .pp-name { font-size: 16px; font-weight: 600; line-height: 1.35; color: var(--pp-ink); }
   .pp-meta { font-size: 11.5px; color: var(--pp-sub); margin-top: 2px; }
   .pp-values { display: flex; gap: 26px; flex-wrap: wrap; flex: 1; }
@@ -225,6 +237,7 @@
   // ---------- 状态 ----------
   var DATA = null;
   var selectedId = null;
+  var selfId = null;
   var lastIncoming = null;
   var cam = { a: 0.72, e: 0.47 };
   var plots = null;
@@ -373,7 +386,8 @@
     ["space", "xy", "xz"].forEach(function (view) {
       var p = plots[view];
       if (!p) return;
-      Array.prototype.slice.call(p.el.querySelectorAll(".pp-mark,.pp-label,.pp-cand")).forEach(function (el) {
+      Array.prototype.slice.call(p.el.querySelectorAll(
+        ".pp-mark,.pp-label,.pp-cand,.pp-self,.pp-self-label,.pp-selring")).forEach(function (el) {
         el.remove();
       });
       var groups = groupsFor(view);
@@ -412,6 +426,29 @@
       label.className = "pp-label";
       p.el.appendChild(label);
       p.labelEl = label;
+
+      // 「我」：始终用强调标记画出，与当前查看对象相互独立
+      var selfBtn = document.createElement("button");
+      selfBtn.type = "button";
+      selfBtn.className = "pp-self";
+      selfBtn.innerHTML = '<span class="pp-self-dot"></span>';
+      selfBtn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        if (selfId) chooseUser(selfId);
+      });
+      p.el.appendChild(selfBtn);
+      p.selfEl = selfBtn;
+
+      var selfLabel = document.createElement("div");
+      selfLabel.className = "pp-self-label";
+      selfLabel.innerHTML = "<b>我</b>";
+      p.el.appendChild(selfLabel);
+      p.selfLabelEl = selfLabel;
+
+      var ring = document.createElement("div");
+      ring.className = "pp-selring";
+      p.el.appendChild(ring);
+      p.selRingEl = ring;
     });
     marksDirty = false;
   }
@@ -431,13 +468,73 @@
       btn.setAttribute("aria-pressed", active ? "true" : "false");
       btn.style.zIndex = active ? "12" : "2";
     });
+    positionOverlays(view);
     positionLabel(view, groups);
+  }
+
+  // 「我」与选中环的定位：两者互不影响；「我」缺数据时不画假点
+  function positionOverlays(view) {
+    var p = plots[view];
+    if (!p) return;
+    var elw = p.el.clientWidth || 200, elh = p.el.clientHeight || 120;
+    var selfUser = userById(selfId);
+    var selfPos = null;
+    if (selfUser && selfUser.coords) {
+      var q = view === "space" ? project3D(selfUser.coords) : project2D(view, selfUser.coords);
+      if (isFinite(q[0]) && isFinite(q[1]) && q[1] > -10 && q[1] < elh + 10) selfPos = q;
+    }
+    if (p.selfEl) {
+      p.selfEl.style.display = selfPos ? "grid" : "none";
+      if (selfPos) {
+        p.selfEl.style.left = Math.max(32, Math.min(selfPos[0], elw - 32)) + "px";
+        p.selfEl.style.top = selfPos[1] + "px";
+        p.selfEl.setAttribute("aria-label",
+          "我：" + (selfUser.name || selfId) + "；点击把查看对象切回自己");
+        p.selfEl.title = (selfUser.name || "") + "（我）";
+      }
+    }
+    var selUser = userById(selectedId);
+    var sameAsSelf = !!(selfUser && selUser && String(selUser.user_id) === String(selfUser.user_id));
+    if (p.selfLabelEl) {
+      p.selfLabelEl.style.display = selfPos ? "block" : "none";
+      if (selfPos) {
+        p.selfLabelEl.innerHTML = "<b>我</b>" +
+          (sameAsSelf && selfUser.name ? " · " + esc(selfUser.name) : "");
+        p.selfLabelEl.style.left = Math.max(34, Math.min(selfPos[0], elw - 34)) + "px";
+        p.selfLabelEl.style.top = selfPos[1] + "px";
+        p.selfLabelEl.style.transform = selfPos[1] < 48
+          ? "translate(-50%, 40%)" : "translate(-50%, -215%)";
+      }
+    }
+    if (p.selRingEl) {
+      var ringPos = null;
+      if (selUser && selUser.coords && !sameAsSelf) {
+        var r = view === "space" ? project3D(selUser.coords) : project2D(view, selUser.coords);
+        if (isFinite(r[0]) && isFinite(r[1])) ringPos = r;
+      }
+      p.selRingEl.style.display = ringPos ? "block" : "none";
+      if (ringPos) {
+        p.selRingEl.style.left = Math.max(26, Math.min(ringPos[0], elw - 26)) + "px";
+        p.selRingEl.style.top = ringPos[1] + "px";
+      }
+    }
   }
 
   function positionLabel(view, groups) {
     var p = plots[view];
     if (!p || !p.labelEl) return;
+    var selfUser = userById(selfId);
+    if (selfUser && (selectedId == null || String(selectedId) === String(selfUser.user_id))) {
+      // 「我」的标签已经承担姓名展示，避免同一位置叠两个标签
+      p.labelEl.style.display = "none";
+      return;
+    }
     var user = userById(selectedId);
+    var selfUser2 = selfUser;
+    var selfPos = null;
+    if (selfUser2 && selfUser2.coords) {
+      selfPos = view === "space" ? project3D(selfUser2.coords) : project2D(view, selfUser2.coords);
+    }
     var show = false;
     if (user) {
       var pos = view === "space" ? project3D(user.coords) : project2D(view, user.coords);
@@ -446,9 +543,12 @@
         p.labelEl.textContent = user.name || ("用户" + selectedId);
         p.labelEl.style.left = Math.max(30, Math.min(pos[0], elw - 30)) + "px";
         p.labelEl.style.top = pos[1] + "px";
-        // 靠近顶部时标签放到点下方，避免压住面板标题
-        p.labelEl.style.transform = pos[1] < 28
-          ? "translate(-50%, 26%)" : "translate(-50%, -160%)";
+        // 与「我」的标签避让：两点过近时把姓名标签放到点下方，否则靠顶部时下移
+        var nearSelf = !!(selfPos && isFinite(selfPos[0]) && isFinite(selfPos[1]) &&
+          Math.abs(selfPos[0] - pos[0]) < 70 && Math.abs(selfPos[1] - pos[1]) < 40);
+        p.labelEl.style.transform = nearSelf
+          ? "translate(-50%, 165%)"
+          : (pos[1] < 28 ? "translate(-50%, 26%)" : "translate(-50%, -160%)");
         show = pos[1] > -8 && pos[1] < elh + 8;
       }
     }
@@ -485,9 +585,16 @@
     edges.forEach(function (edge) {
       out += '<path class="pp-edge" d="M' + pt(edge[0]) + "L" + pt(edge[1]) + '"/>';
     });
+    // 「我」的落点虚线用强调色；正在查看的其他人用中性细虚线
+    var selfU = userById(selfId);
+    if (selfU) {
+      out += '<path class="pp-guide" d="M' + pt(selfU.coords) + "L" +
+        pt([selfU.coords[0], selfU.coords[1], 0]) + '"/>';
+    }
     var sel = userById(selectedId);
-    if (sel) {
-      out += '<path class="pp-guide" d="M' + pt(sel.coords) + "L" + pt([sel.coords[0], sel.coords[1], 0]) + '"/>';
+    if (sel && (!selfU || String(sel.user_id) !== String(selfU.user_id))) {
+      out += '<path class="pp-guide pp-soft" d="M' + pt(sel.coords) + "L" +
+        pt([sel.coords[0], sel.coords[1], 0]) + '"/>';
     }
     // 刻度
     ticks0.forEach(function (t) {
@@ -547,9 +654,14 @@
         '" text-anchor="middle">' + esc(tk.label) + "</text>";
     });
     out += '<path class="pp-axis" d="M' + l + "," + t + "V" + (h - b) + "H" + (w - r) + '"/>';
+    var selfU = userById(selfId);
+    if (selfU && selfU.coords) {
+      out += '<path class="pp-guide" d="M' + l + "," + yy(selfU.values[yIndex], ax[yIndex]) +
+        "H" + xy(selfU.values[0], ax[0]) + "V" + (h - b) + '"/>';
+    }
     var sel = userById(selectedId);
-    if (sel && sel.coords) {
-      out += '<path class="pp-guide" d="M' + l + "," + yy(sel.values[yIndex], ax[yIndex]) +
+    if (sel && sel.coords && (!selfU || String(sel.user_id) !== String(selfU.user_id))) {
+      out += '<path class="pp-guide pp-soft" d="M' + l + "," + yy(sel.values[yIndex], ax[yIndex]) +
         "H" + xy(sel.values[0], ax[0]) + "V" + (h - b) + '"/>';
     }
     p.svg.innerHTML = out;
@@ -686,9 +798,11 @@
         (u.missing_axes && u.missing_axes.length ? "（缺少 " + esc(u.missing_axes.join("、")) + "）" : "") +
         "，无法在三张图中定位；没有伪造高亮，也没有切换到其他人。</div>";
     }
+    var isMe = selfId != null && String(u.user_id) === String(selfId);
     host.innerHTML =
       '<div class="pp-avatar">' + esc(initials) + "</div>" +
-      '<div class="pp-identity"><div class="pp-name">' + esc(u.name || "未填写姓名") + "</div>" +
+      '<div class="pp-identity"><div class="pp-name">' + esc(u.name || "未填写姓名") +
+      (isMe ? ' <span class="pp-you">我</span>' : "") + "</div>" +
       '<div class="pp-meta">' + esc([u.school, u.major].filter(Boolean).join(" · ") || "学校/专业未填写") +
       " · #" + esc(u.user_id) + "</div></div>" +
       '<div class="pp-values">' + values + "</div>" + note;
@@ -700,6 +814,7 @@
     DATA = payload;
     applyTheme(payload.theme);
     root().setAttribute("data-marker", payload.marker_style === "color" ? "color" : "shape");
+    selfId = payload.self_user_id == null ? null : String(payload.self_user_id);
     if (!plots) initPlots();
     root().classList.remove("pp-empty-mode");
     document.getElementById("pp-empty").textContent = "";

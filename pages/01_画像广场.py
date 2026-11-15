@@ -53,15 +53,15 @@ _mode_label = _c1.radio("空间模式", ["指标空间", "语义空间（式一 
 mode = "metrics" if _mode_label == "指标空间" else "semantic"
 _view3d = _c2.toggle("三维联动模式（关闭为二维查看）", value=True)
 
-# 定位标记：让用户一眼在三张图里找到自己（方案可切换，便于对比效果）
+# 「我」的定位标记：让正在使用本功能的用户一眼在三张图里找到自己的位置
 _marker_keys = list(theme.MARKER_STYLES)
 marker_style = st.radio(
-    "定位标记", _marker_keys, horizontal=True,
+    "我的定位标记", _marker_keys, horizontal=True,
     format_func=lambda k: theme.MARKER_STYLES[k],
     index=_marker_keys.index(theme.DEFAULT_MARKER_STYLE),
-    help="① 用形状区分（菱形 + 准星环）；② 用醒目配色区分（暖橙 + 光晕）。"
-         "两种方案都只改变选中用户的呈现，不改动坐标与数值。")
-st.caption("定位标记只作用于当前选中用户；其余用户始终保持中性灰蓝圆点，避免整图花掉。")
+    help="① 用形状区分「我」（菱形 + 准星环）；② 用醒目配色区分「我」（暖橙 + 光晕）。"
+         "只改变「我」这个点位的呈现，不改动坐标与数值。")
+st.caption("强调标记恒定落在「我」身上；正在查看的其他人用虚线环 + 姓名标注，切换选中不会丢掉自己的位置。")
 
 if mode == "metrics":
     _axis_ids = list(profile_plaza.METRIC_AXES)
@@ -90,15 +90,18 @@ else:
                "只做一次 PCA，三张图共用同一组 PC1/PC2/PC3 坐标；邻近只表示投影距离，"
                "不表示用户优劣，也不等于完整语义相似度。")
 
-# ---------------- 定位用户（Python 侧稳定状态） ----------------
+# ---------------- 定位用户 + 我是谁（Python 侧稳定状态） ----------------
 _SEL_KEY = "plaza_selected_user"
+_SELF_KEY = "plaza_self_user"
 _SYNC_KEY = "plaza_sync_selector"
 _uids = [int(x) for x in df["user_id"].tolist()]
 _info = {int(r["user_id"]): r for r in df.to_dict("records")}
-_default_uid = _uids[-1]
 _cur = st.session_state.get("result")
-if _cur and _cur.get("ok") and int(_cur.get("user_id", -1)) in _uids:
-    _default_uid = int(_cur["user_id"])
+_session_uid = (int(_cur["user_id"]) if _cur and _cur.get("ok")
+                and int(_cur.get("user_id", -1)) in _uids else None)
+_default_uid = _session_uid if _session_uid is not None else _uids[-1]
+# 「我」：优先本次会话走完 ①→④ 的用户；没有会话上下文时以最近新增用户为准
+_self_source = "本次会话的用户" if _session_uid is not None else "最近新增的用户（未检测到本次会话用户）"
 
 # 组件回传的选中：在 selectbox 实例化前同步它的 widget state
 if _SYNC_KEY in st.session_state:
@@ -109,6 +112,8 @@ if st.session_state.get(_SEL_KEY) not in _uids:
     if _old is not None:
         st.session_state["plaza_fallback_note"] = (
             "原定位用户 #%s 已不在用户列表中，已回到当前可用的一个用户。" % _old)
+if st.session_state.get(_SELF_KEY) not in _uids:
+    st.session_state[_SELF_KEY] = _default_uid
 
 
 def _user_label(uid):
@@ -119,8 +124,14 @@ def _user_label(uid):
     return "#%s %s（%s · %s）" % (uid, name, school, major)
 
 
-_selected = st.selectbox("🎯 定位用户", _uids, key=_SEL_KEY, format_func=_user_label)
-st.caption("人物身份统一以 `user_id` 为主键；同名用户也会因编号/学校/专业不同而独立选中。")
+_cs1, _cs2 = st.columns(2)
+_selected = _cs1.selectbox("🎯 定位用户（查看对象）", _uids, key=_SEL_KEY,
+                           format_func=_user_label)
+_self_id = _cs2.selectbox("🙋 我是（当前用户）", _uids, key=_SELF_KEY,
+                          format_func=_user_label,
+                          help="三张图里强调标记始终跟着这个人，方便随时找到自己的位置。")
+st.caption("「我」默认取%s；可在这里更正。人物身份统一以 `user_id` 为主键，"
+           "同名用户也会因编号/学校/专业不同而独立选中。" % _self_source)
 
 # ---------------- 空间数据（按数据版本缓存；切换人物不重算 PCA） ----------------
 space = profile_plaza.get_space(mode, axes, df)
@@ -134,7 +145,11 @@ if space.get("error"):
 _view_mode = "linked3d" if _view3d else "flat2d"
 if space.get("dims", 3) < 3 and _view3d:
     st.info("PC3 不可用（有效秩不足），已自动降级为二维投影；不会补造第三个维度。")
-payload = profile_plaza.build_payload(space, _selected, _view_mode, marker_style=marker_style)
+payload = profile_plaza.build_payload(space, _selected, _view_mode,
+                                      marker_style=marker_style, self_user_id=_self_id)
+
+if payload.get("self_note"):
+    st.warning("🙋 " + payload["self_note"])
 
 _event = profile_plaza.render(payload)
 _picked = profile_plaza.parse_event(_event, space)

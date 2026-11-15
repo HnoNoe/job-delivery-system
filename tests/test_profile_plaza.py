@@ -124,6 +124,42 @@ class MetricSpaceTests(unittest.TestCase):
         self.assertEqual(pp.parse_event(
             {"event": "select_user", "user_id": "1", "data_revision": "rev-1"}, space), "1")
 
+    def test_self_marker_is_independent_of_selection(self):
+        df = _df([_user(1, name="我"), _user(2, name="甲"), _user(3, name="乙")])
+        space = pp.build_metric_space(df, ("GPA", "技能数", "经历段数"))
+        payload = pp.build_payload(space, "3", self_user_id="1")
+        self.assertEqual(payload["self_user_id"], "1")
+        self.assertTrue(payload["self_visible"])
+        self.assertEqual(payload["self_user"]["name"], "我")
+        # 选中与「我」互不影响
+        self.assertEqual(payload["selected_user_id"], "3")
+        self.assertEqual(payload["selected_user"]["name"], "乙")
+        self.assertEqual(payload["self_note"], "")
+
+    def test_self_missing_axis_is_reported_without_fake_position(self):
+        df = _df([_user(1), _user(2, gpa=None)])
+        space = pp.build_metric_space(df, ("GPA", "技能数", "经历段数"))
+        payload = pp.build_payload(space, "1", self_user_id="2")
+        self.assertEqual(payload["self_user_id"], "2")
+        self.assertFalse(payload["self_visible"])
+        self.assertIn("未能定位", payload["self_note"])
+        self.assertIn("GPA", payload["self_note"])
+
+    def test_self_not_in_dataset_is_not_guessed(self):
+        df = _df([_user(1)])
+        space = pp.build_metric_space(df, ("GPA", "技能数", "经历段数"))
+        payload = pp.build_payload(space, "1", self_user_id="999")
+        self.assertIsNone(payload["self_user_id"])
+        self.assertFalse(payload["self_visible"])
+        self.assertIn("不在本页数据集", payload["self_note"])
+
+    def test_self_defaults_to_nothing_when_not_provided(self):
+        df = _df([_user(1)])
+        space = pp.build_metric_space(df, ("GPA", "技能数", "经历段数"))
+        payload = pp.build_payload(space, "1")
+        self.assertIsNone(payload["self_user_id"])
+        self.assertIsNone(payload["self_user"])
+
     def test_marker_style_defaults_and_unknown_values(self):
         df = _df([_user(1)])
         space = pp.build_metric_space(df, ("GPA", "技能数", "经历段数"))
