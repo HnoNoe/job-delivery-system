@@ -94,6 +94,17 @@ def init_db():
         task_id INTEGER PRIMARY KEY,
         indicator TEXT NOT NULL       -- 写入指示 I_k JSON 列表
     );
+    CREATE TABLE IF NOT EXISTS hr_responses (
+        resp_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL,     -- 关联投递任务
+        platform TEXT DEFAULT '',     -- boss / zhilian / auto / manual …
+        kind TEXT NOT NULL,           -- 已查看 / 邀面试 / 不合适 / 无回复 / 其他
+        content TEXT DEFAULT '',      -- 备注或消息摘要（本地存储，不外传）
+        content_hash TEXT,            -- 幂等去重（同任务同类型同内容不重复登记）
+        first_seen TEXT DEFAULT CURRENT_TIMESTAMP,
+        source TEXT DEFAULT 'manual', -- manual / auto
+        FOREIGN KEY (task_id) REFERENCES delivery_tasks(task_id)
+    );
     CREATE TABLE IF NOT EXISTS history_samples (
         sample_id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
@@ -117,6 +128,22 @@ def init_db():
         interview_count INTEGER DEFAULT 0,  -- 进面试数
         ts TEXT DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS hr_inbox (
+        inbox_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER,              -- 可空：未匹配到投递任务的会话
+        platform TEXT DEFAULT '',
+        company TEXT DEFAULT '',
+        hr TEXT DEFAULT '',
+        message TEXT DEFAULT '',
+        kind TEXT DEFAULT '',         -- 分类结果
+        msg_hash TEXT UNIQUE,         -- 幂等：同一会话同一消息只记一次
+        first_seen TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS app_state (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
     """)
     conn.execute("BEGIN IMMEDIATE")
     # Additive migrations: keep databases and historical tasks from older copies.
@@ -130,6 +157,9 @@ def init_db():
             conn.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, definition))
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS history_task_unique ON history_samples(task_id) WHERE task_id IS NOT NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_user ON delivery_tasks(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS responses_task ON hr_responses(task_id)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS responses_dedup "
+                 "ON hr_responses(task_id, kind, content_hash) WHERE content_hash IS NOT NULL")
     conn.execute("INSERT OR IGNORE INTO user_jobs (user_id, job_id) SELECT DISTINCT d.user_id, d.job_id "
                  "FROM delivery_tasks d JOIN jobs j ON j.job_id=d.job_id "
                  "WHERE d.user_id NOT IN (SELECT user_id FROM user_job_scopes)")

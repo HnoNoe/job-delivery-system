@@ -19,6 +19,7 @@ from email.mime.application import MIMEApplication
 
 import config
 import db
+import platforms
 import recommend
 import schema
 from runtime_paths import safe_filename, resolve_resume
@@ -235,12 +236,24 @@ def deliver_one(task_id):
             if host == "127.0.0.1":
                 platform_key = "mock"
             for k in ([platform_key] if platform_key else []):
+                opened, open_msg = session.ensure_page(k)
+                if not opened:
+                    raise DeliveryError("无法打开 %s 浏览器：%s" % (k, open_msg))
                 ok2, msg = session.dpage_deliver(k, job_link)
                 if ok2:
+                    cfg = platforms.get(k) or {}
+                    if cfg.get("auto_greeting"):
+                        # 智联：点「立即投递」后平台自动发送简历+默认招呼语
+                        detail = msg + "；平台已自动发送简历/招呼语"
+                        break
+                    if cfg.get("greet_supported") is False:
+                        # 如「申请职位」类平台：点击即投递，没有站内聊天
+                        detail = msg + "；该平台为直接投递，无站内招呼语"
+                        break
                     _t.sleep(config.DELIVER_INTERVAL)
                     ok3, msg3 = session.dpage_greet(k, greet)
                     if not ok3:
-                        raise DeliveryUncertain("已点击沟通，但招呼语未确认发送：%s，请人工核对" % msg3)
+                        raise DeliveryUncertain("已点击沟通，但招呼语未确认发送：%s" % msg3)
                     detail = msg + "；" + msg3
                     break
                 last_err = msg
@@ -269,11 +282,14 @@ def record_manual_delivery(task_id):
     return True, "已记录手动投递"
 
 
-def deliver_batch(task_ids=None, stop_on_risk=True, limit=None):
+def deliver_batch(task_ids=None, stop_on_risk=True, limit=None, interval=None,
+                  all_pending=False):
     """批量投递（一口气投多个，针对 Boss 直聘「立即沟通」通道）。
 
     - 安全模式下拒绝真正批量投递（提示关闭 SAFE_MODE），绝不假装投递。
-    - 受每日上限 DAILY_SEND_LIMIT、单次批次上限 BATCH_SEND_LIMIT、限速 DELIVER_INTERVAL 三重保护。
+    - 受每日上限 DAILY_SEND_LIMIT、单次批次上限 BATCH_SEND_LIMIT、限速 DELIVER_INTERVAL 三重保护；
+    - all_pending=True 时不受单批上限约束（「全部投递」用），仍受每日上限约束；
+    - interval 可覆盖每条之间的间隔（「全部投递」用更长的 DELIVER_INTERVAL_ALL）。
     - 检测到风控/封号/登录失效信号时立即停止，避免账号被封。
 
     返回 dict：{投递数, 成功数, 失败数, 停止原因, 明细:[(task_id, ok, msg)]}
@@ -281,52 +297,96 @@ def deliver_batch(task_ids=None, stop_on_risk=True, limit=None):
     if config.SAFE_MODE:
         return {"投递数": 0, "成功数": 0, "失败数": 0,
                 "停止原因": "安全模式已开启，不会真正投递。请将 config.py 的 SAFE_MODE 设为 False 后再批量投递。",
-                "明细": []}
+                "明细": [], "按渠道": {}}
 
     # 取待投递任务（未投递的），按 task_id 顺序
     conn = db.get_conn()
     if task_ids is not None:
         if not task_ids:
             conn.close()
-            return {"投递数": 0, "成功数": 0, "失败数": 0, "停止原因": "无待投递任务", "明细": []}
-        q = ("SELECT task_id, status FROM delivery_tasks WHERE task_id IN (%s) ORDER BY task_id"
-             % ",".join("?" * len(task_ids)))
+            return {"投递数": 0, "成功数": 0, "失败数": 0, "停止原因": "无待投递任务",
+                    "明细": [], "按渠道": {}}
+        q = ("SELECT task_id, status, entry_type, entry_addr, job_link FROM delivery_tasks "
+             "WHERE task_id IN (%s) ORDER BY task_id" % ",".join("?" * len(task_ids)))
         rows = conn.execute(q, list(task_ids)).fetchall()
     else:
         rows = conn.execute(
-            "SELECT task_id, status FROM delivery_tasks WHERE status = '待投递' ORDER BY task_id"
+            "SELECT task_id, status, entry_type, entry_addr, job_link FROM delivery_tasks "
+            "WHERE status = '待投递' ORDER BY task_id"
         ).fetchall()
     conn.close()
-    pending = [r["task_id"] for r in rows if r["status"] == "待投递"]
+    pending_rows = [r for r in rows if r["status"] == "待投递"]
+    pending = [r["task_id"] for r in pending_rows]
+    entry_of = {r["task_id"]: classify_entry(r["entry_type"], r["entry_addr"])
+                for r in pending_rows}
 
     # 每日上限 + 单次批次上限
     remaining = config.DAILY_SEND_LIMIT - _daily_sends()
-    batch_limit = min(limit, config.BATCH_SEND_LIMIT) if limit and limit > 0 else config.BATCH_SEND_LIMIT
+    if all_pending:
+        batch_limit = len(pending) if not limit else max(1, min(int(limit), len(pending)))
+    else:
+        batch_limit = min(limit, config.BATCH_SEND_LIMIT) if limit and limit > 0 else config.BATCH_SEND_LIMIT
     budget = min(len(pending), batch_limit, remaining)
     if budget <= 0:
         reason = ("今日投递已达上限（%d 条），请明天再投（防止账号被封）" % config.DAILY_SEND_LIMIT
                   if remaining <= 0 else "无待投递任务")
-        return {"投递数": 0, "成功数": 0, "失败数": 0, "停止原因": reason, "明细": []}
+        return {"投递数": 0, "成功数": 0, "失败数": 0, "停止原因": reason,
+                "明细": [], "按渠道": {}}
+
+    # 批量开始前先确保相关平台的浏览器都打开：避免整批 5 条都报“浏览器未打开”
+    import session as _session
+    from urllib.parse import urlparse as _urlparse
+    needed = set()
+    for _r in pending_rows[:budget]:
+        # 只有「半自动」需要浏览器点按钮；API/邮件/Web表单各自走自己的通道，
+        # 不能因为同批里有这些任务就强制启动浏览器（CI/无浏览器环境会整批失败）。
+        if classify_entry(_r["entry_type"], _r["entry_addr"]) != "半自动":
+            continue
+        _link = _r["job_link"] or _r["entry_addr"] or ""
+        _host = _urlparse(_link).hostname or ""
+        for _pk, _domain in _session.platforms.COOKIE_DOMAINS.items():
+            if _host == _domain or _host.endswith("." + _domain):
+                needed.add(_pk)
+                break
+        else:
+            if _host == "127.0.0.1":
+                needed.add("mock")
+    open_errors = {}
+    for _pk in needed:
+        _ok_open, _open_msg = _session.ensure_page(_pk)
+        if not _ok_open:
+            open_errors[_pk] = _open_msg
+    if needed and len(open_errors) == len(needed):
+        return {"投递数": 0, "成功数": 0, "失败数": 0,
+                "停止原因": "无法打开浏览器，未执行投递：%s"
+                            % "；".join("%s: %s" % (k, v) for k, v in open_errors.items()),
+                "明细": [], "按渠道": {}}
 
     details = []
     ok_count = fail_count = 0
     stop_reason = ""
+    by_entry = {}
     for i, tid in enumerate(pending[:budget]):
+        by_entry[entry_of.get(tid, "半自动")] = by_entry.get(entry_of.get(tid, "半自动"), 0) + 1
         ok, msg = deliver_one(tid)
         details.append((tid, ok, msg))
         if ok:
             ok_count += 1
         else:
             fail_count += 1
-            if stop_on_risk and any(k in str(msg) for k in ("验证", "风控", "登录失效", "登录态失效", "封", "Code 3", "code 3", "人工核对", "核对平台")):
+            # 只有明确的平台风控/登录失效信号才熔断；
+            # 「招呼语未确认，请人工核对」属于“待核实”，不能当成风控，否则整批会被一条不确定消息掐断。
+            risk_words = ("验证", "风控", "登录失效", "登录态失效", "封号", "封禁",
+                          "账号异常", "操作频繁", "Code 3", "code 3")
+            if stop_on_risk and any(k in str(msg) for k in risk_words):
                 stop_reason = "检测到风控/封号信号，已停止批量投递：%s" % str(msg)[:60]
                 break
-        # 两条之间的限速间隔（防封号）
+        # 两条之间的限速间隔（防封号）；「全部投递」用更长的间隔
         if i < budget - 1:
-            time.sleep(config.DELIVER_INTERVAL)
+            time.sleep(config.DELIVER_INTERVAL if interval is None else max(0, int(interval)))
 
     return {"投递数": len(details), "成功数": ok_count, "失败数": fail_count,
-            "停止原因": stop_reason, "明细": details}
+            "停止原因": stop_reason, "明细": details, "按渠道": by_entry}
 
 
 def _get_user_l0(conn, user_id):

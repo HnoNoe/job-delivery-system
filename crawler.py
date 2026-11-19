@@ -64,6 +64,9 @@ def normalize_fields(raw: dict) -> dict:
     # 单位名称与公司同义：公司为空时用单位名称补齐（禁忌公司过滤依赖此字段）
     if not out.get("公司") and out.get("单位名称"):
         out["公司"] = out["单位名称"]
+    # 词表规范化：学历/经验/已沟通在入库前即映射到规范词（高强度校验的第一道闸）
+    for _k in ("学历", "经验", "已沟通"):
+        out[_k] = schema.canonical_value(_k, out.get(_k))
     return out
 
 

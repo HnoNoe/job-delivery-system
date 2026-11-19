@@ -8,6 +8,7 @@ import config
 import db
 import schema
 import embedding
+import job_filters
 from formulas import formula_2_cosine, formula_3_match_score, interval_feature
 
 
@@ -20,13 +21,27 @@ def _desc_str(f):
 
 
 def store_jobs(jobs, user_id=None):
-    """把外部检索/采集到的岗位写入 jobs 表（幂等）。返回数量。"""
+    """把外部检索/采集到的岗位写入 jobs 表（幂等）。返回数量。
+
+    高强度校验（harsh）：每条记录先过 schema.validate_job_fields，
+    有关键字段缺损等「不可核对」违规的直接拒收并留痕，不写入脏数据。
+    """
+    import schema
+    skipped = 0
     with db.get_conn() as conn:
         conn.execute("UPDATE jobs SET active=0")
         ids = []
         for raw in jobs:
             from crawler import normalize_fields
             f = normalize_fields(raw)
+            violations, f = schema.validate_job_fields(f)
+            fatal = [v for v in violations if v.startswith("关键字段") or v.startswith("未知字段")]
+            if fatal:
+                skipped += 1
+                print("[store_jobs] 拒收 1 条岗位：%s" % "；".join(fatal))
+                continue
+            for v in violations:
+                print("[store_jobs] 警告：%s（已按规范词/原样入库）" % v)
             fields = json.dumps(f, ensure_ascii=False, sort_keys=True)
             vec = embedding.embed((f.get("岗位名称", "") or "") + " " + _desc_str(f))
             row = conn.execute("SELECT job_id FROM jobs WHERE fields=? LIMIT 1", (fields,)).fetchone()
@@ -94,15 +109,15 @@ def determine_target_jobs(profile):
                 continue
 
             # 硬约束过滤（集合过滤，非打分）。字段缺失时不据此过滤（缺失视为未知，宁多勿漏）
-            if hard["意向城市"] and f.get("城市") and f.get("城市") not in hard["意向城市"]:
+            if not job_filters.city_match(f.get("城市"), hard["意向城市"]):
                 continue
-            if hard["意向行业"] and f.get("行业") and f.get("行业") not in hard["意向行业"]:
+            if not job_filters.industry_match(f.get("行业"), hard["意向行业"]):
                 continue
             company = f.get("公司") or f.get("单位名称", "")
             if hard["禁忌公司"] and any(str(t) in str(company) for t in hard["禁忌公司"]):
                 continue
             # 已沟通过的岗位跳过（避免重复投递骚扰）
-            if str(f.get("已沟通", "")).lower() in ("true", "1"):
+            if str(f.get("已沟通", "")).strip() == "是":
                 continue
 
             # 打分（式二、式三）

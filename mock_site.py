@@ -150,6 +150,82 @@ def _append_greet(data):
     return rec
 
 
+# ---------- HR 回复模拟（供方案 B 的「检查新回复」联调） ----------
+REPLIES_FILE = config.DATA_DIR / "mock_replies.jsonl"
+
+
+def _read_replies():
+    recs = []
+    if REPLIES_FILE.exists():
+        for line in REPLIES_FILE.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                try:
+                    recs.append(json.loads(line))
+                except Exception:
+                    pass
+    return recs
+
+
+def _append_reply(data):
+    rec = {"time": time.strftime("%Y-%m-%d %H:%M:%S"),
+           "单位名称": str(data.get("单位名称", "") or ""),
+           "岗位名称": str(data.get("岗位名称", "") or ""),
+           "text": str(data.get("text", "") or ""),
+           "bossName": str(data.get("bossName", "HR") or "HR")}
+    REPLIES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(REPLIES_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    return rec
+
+
+def _chat_sessions():
+    """由「已投递记录 + HR 回复」合成会话列表（对齐 Boss zpchat 的字段命名）。"""
+    sessions = {}
+    for greet in _read_greets():
+        p = greet.get("payload") or {}
+        key = (p.get("单位名称", ""), p.get("岗位名称", ""))
+        sessions[key] = {
+            "brandName": p.get("单位名称", ""),
+            "jobName": p.get("岗位名称", ""),
+            "bossName": "HR",
+            "lastMessage": "你已发送招呼语",
+            "lastTime": greet.get("time", ""),
+            "unread": 0,
+        }
+    for reply in _read_replies():
+        key = (reply.get("单位名称", ""), reply.get("岗位名称", ""))
+        item = sessions.get(key)
+        if item is None:
+            item = sessions.setdefault(key, {
+                "brandName": reply.get("单位名称", ""),
+                "jobName": reply.get("岗位名称", ""),
+                "bossName": reply.get("bossName", "HR"),
+            })
+        item.update(lastMessage=reply.get("text", ""), lastTime=reply.get("time", ""),
+                    unread=1, bossName=reply.get("bossName", item.get("bossName", "HR")))
+    return list(sessions.values())
+
+
+def _chat_page():
+    items = []
+    for s in _chat_sessions():
+        items.append(
+            "<li class='chat-item'><div class='chat-name'>%s</div>"
+            "<div class='chat-job'>%s</div><div class='chat-msg'>%s</div>"
+            "<div class='chat-time'>%s</div></li>"
+            % (s.get("brandName", ""), s.get("jobName", ""),
+               s.get("lastMessage", ""), s.get("lastTime", "")))
+    return (
+        "<!doctype html><html><head><meta charset='utf-8'><title>消息 - Mock Boss</title>"
+        + _STYLE +
+        "<style>li.chat-item{list-style:none;background:#fff;border:1px solid #ECEEF3;"
+        "border-radius:10px;padding:12px;margin:8px 0;max-width:640px}"
+        ".chat-name{font-weight:600}.chat-job{color:#0AA6A6;font-size:13px}"
+        ".chat-msg{color:#5B6270;font-size:13px;margin-top:4px}"
+        ".chat-time{color:#9AA0AB;font-size:12px}</style></head><body>"
+        "<h1>消息</h1><ul class='chat-list'>%s</ul></body></html>" % ("".join(items) or "<li>暂无会话</li>"))
+
+
 class MockHandler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # 静默请求日志
         pass
@@ -185,6 +261,13 @@ class MockHandler(BaseHTTPRequestHandler):
             return self._job_detail(int(m.group(1)))
         if path == "/api/greets":
             return self._json({"code": 0, "data": _read_greets()})
+        if path == "/api/replies":
+            return self._json({"code": 0, "data": _read_replies()})
+        if path == "/web/geek/chat":
+            return self._html(_chat_page())
+        if path == "/wapi/zpchat/geek/getUserJobList":
+            return self._json({"code": 0, "message": "Success",
+                               "zpData": {"sessions": _chat_sessions()}})
         if path == "/":
             return self._html(
                 "<!doctype html><html><head><meta charset='utf-8'>"
@@ -209,6 +292,9 @@ class MockHandler(BaseHTTPRequestHandler):
         if u.path == "/wapi/zpgeek/friend/add.json":
             rec = _append_greet(data)
             return self._json({"code": 0, "message": "已发送", "data": rec})
+        if u.path == "/api/hr_reply":
+            rec = _append_reply(data)
+            return self._json({"code": 0, "data": rec})
         return self._json({"code": 1, "msg": "not found"}, 404)
 
     # ---- 搜索接口（对齐真实 Boss 返回结构 zpData.jobList） ----
@@ -301,7 +387,13 @@ class MockHandler(BaseHTTPRequestHandler):
             "<script>"
             "function openChat(){document.getElementById('chat-panel').style.display='block';}"
             "function sendGreet(){"
-            "  var text=document.querySelector('.chat-input textarea').value;"
+            "  var ta=document.querySelector('.chat-input textarea');"
+            "  var text=(ta.value||'').trim();"
+            "  if(!text){return;}"
+            "  var box=document.querySelector('.chat-conversation');"
+            "  var d=document.createElement('div');"
+            "  d.className='chat-message'; d.textContent=text; box.appendChild(d);"
+            "  ta.value='';"
             "  fetch('/wapi/zpgeek/friend/add.json',{method:'POST',"
             "    headers:{'Content-Type':'application/json'},"
             "    body:JSON.stringify({jobId:%d, greeting:text})});"

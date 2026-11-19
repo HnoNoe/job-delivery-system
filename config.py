@@ -8,6 +8,20 @@ DATA_DIR = RUNTIME_DIR / "data"
 LOG_DIR = RUNTIME_DIR / "logs"
 BROWSER_PATH = os.environ.get("JOBDELIVERY_BROWSER", "")
 HEADLESS = os.environ.get("JOBDELIVERY_HEADLESS", "").lower() in ("true", "1", "yes")
+
+# 检查 HR 回复时，会话列表由 WebSocket 推送，需要等它渲染（Boss 实测 ~10s）
+CHAT_LOAD_WAIT = int(os.environ.get("JOBDELIVERY_CHAT_WAIT", "12"))
+
+# 启动时自动检查 HR 回复（0 关闭）。冷却期内不会重复检查，避免每次刷新都开浏览器、触发平台风控。
+AUTO_CHECK_REPLIES = os.environ.get("JOBDELIVERY_AUTO_CHECK", "1").lower() not in ("0", "false", "no")
+AUTO_CHECK_COOLDOWN_MIN = int(os.environ.get("JOBDELIVERY_AUTO_CHECK_COOLDOWN", "60"))
+# 发送招呼语后，等聊天记录出现该消息的确认时间（秒）
+GREET_CONFIRM_WAIT = int(os.environ.get("JOBDELIVERY_GREET_CONFIRM_WAIT", "4"))
+# 启动自动检查哪些平台（逗号分隔，默认只查 Boss；其它平台可在第⑥阶段手动检查）
+AUTO_CHECK_PLATFORMS = [x.strip() for x in
+                        os.environ.get("JOBDELIVERY_AUTO_CHECK_PLATFORMS", "boss").split(",")
+                        if x.strip()]
+
 # 检索时不弹出浏览器窗口：优先复用已打开的登录浏览器；
 # 需要新开时把窗口移到屏幕外（仍是有头浏览器，指纹更真实，不易被判定为无头）。
 # 设为 0/false 可恢复为“检索也弹窗”。
@@ -25,6 +39,15 @@ DB_PATH = str(Path(os.environ.get("JOBDELIVERY_DB", str(DATA_DIR / "jobdelivery.
 # 嵌入
 EMBED_DIM = 128
 EMBED_MODEL = None
+
+# 行业别名归并：同一组视为同一类（城市/行业硬约束与等级分共用）
+# 需要更严格时把对应关键词删掉即可。
+INDUSTRY_ALIASES = {
+    "互联网": ["互联网", "计算机软件", "软件", "IT服务", "信息技术", "电子商务", "电商",
+             "企业服务", "社交", "网络", "云计算", "大数据", "信息安全", "通信", "游戏"],
+    "人工智能": ["人工智能", "AI", "智能硬件", "机器人", "机器学习", "计算机视觉",
+              "自然语言", "算法"],
+}
 
 # 式三 匹配分数超参数（实施时选定，非负，二者不同时为 0）
 W_S = 1.0
@@ -51,6 +74,8 @@ SAFE_MODE = True
 
 # 每轮投递间隔（秒），降低被封风险（即使关闭安全模式）
 DELIVER_INTERVAL = 8
+# 「全部投递」模式的间隔（更长，降低连续投递风控概率）
+DELIVER_INTERVAL_ALL = int(os.environ.get("JOBDELIVERY_DELIVER_INTERVAL_ALL", "20"))
 
 # ---------- 投递地址校验（防 SSRF / 个人信息外发到内网）----------
 # 采集来的「投递入口地址」属于不可信数据：默认只允许 http/https 的公网地址。

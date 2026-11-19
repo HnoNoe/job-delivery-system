@@ -5,6 +5,8 @@
 """
 import re
 
+import job_filters
+
 # 常见技术关键词（用于从岗位名称里提取技能词，补充 skills 字段）
 TECH_KEYWORDS = {
     "python", "java", "c++", "cpp", "c#", "csharp", "go", "golang", "javascript", "js",
@@ -25,6 +27,17 @@ def _norm(s):
     return (s or "").strip().lower()
 
 
+def _kw_in(text, kw):
+    """关键词命中：ASCII 词按词边界（避免 go 命中 google），中文按包含。"""
+    text = (text or "").lower()
+    kw = (kw or "").lower()
+    if not kw:
+        return False
+    if re.fullmatch(r"[a-z0-9]+", kw):
+        return re.search(r"(?<![a-z0-9])%s(?![a-z0-9])" % re.escape(kw), text) is not None
+    return kw in text
+
+
 def extract_user_skills(l2_exps):
     """从用户 L2 经历的技术工具字段提取技能标签集合。"""
     skills = set()
@@ -34,9 +47,11 @@ def extract_user_skills(l2_exps):
             t = t.strip().lower()
             if t and t != "无":
                 skills.add(t)
-        # 也把经历名称里的技术词纳入（如「Python后端实习生」）
+        # 技术工具为空时：从名称/事项/结果里兜底提取技术词
+        # （「Python后端实习生」「用 Flask 开发接口」这类都能提出来）
+        haystack = " ".join(str(exp.get(k, "") or "") for k in ("名称", "事项", "结果"))
         for kw in TECH_KEYWORDS:
-            if kw in (exp.get("名称", "") or "").lower():
+            if _kw_in(haystack, kw):
                 skills.add(kw)
     return skills
 
@@ -58,9 +73,13 @@ def extract_job_skills(job):
     # 从岗位名称提取技术关键词
     name = _norm(job.get("岗位名称", ""))
     for kw in TECH_KEYWORDS:
-        if kw in name:
+        if _kw_in(name, kw):
             skills.add(kw)
     return skills
+
+
+def _l3_list(l3, key):
+    return [x.strip() for x in re.split(r"[,，;；]", str((l3 or {}).get(key, "") or "")) if x.strip()]
 
 
 def _degree_match(user_degree, job_degree):
@@ -186,10 +205,10 @@ def match_grade(user_data, job):
     elif a["薪资"] is False:
         score -= 10
     ind = job.get("行业", "")
-    if ind and ind in (l3.get("意向行业", "") or ""):
+    if ind and job_filters.industry_match(ind, _l3_list(l3, "意向行业")):
         score += 5
     city = job.get("城市", "")
-    if city and city in (l3.get("意向城市", "") or ""):
+    if city and job_filters.city_match(city, _l3_list(l3, "意向城市")):
         score += 5
     score = max(0, min(100, score))
     if score >= 60:
@@ -256,9 +275,11 @@ def score_breakdown(user_data, job):
     else:
         parts.append(("薪资", 0, "无法判断"))
     ind = job.get("行业", "")
-    parts.append(("行业", 5 if (ind and ind in (l3.get("意向行业", "") or "")) else 0, ind or "无"))
+    _ind_ok = bool(ind) and job_filters.industry_match(ind, _l3_list(l3, "意向行业"))
+    parts.append(("行业", 5 if _ind_ok else 0, ind or "无"))
     city = job.get("城市", "")
-    parts.append(("城市", 5 if (city and city in (l3.get("意向城市", "") or "")) else 0, city or "无"))
+    _city_ok = bool(city) and job_filters.city_match(city, _l3_list(l3, "意向城市"))
+    parts.append(("城市", 5 if _city_ok else 0, city or "无"))
     return parts
 
 
@@ -490,9 +511,9 @@ def recommend_reasons(user_data, job):
         reasons.append("薪资低于期望")
     # 行业/城市是硬约束（已过滤通过），作为亮点展示
     ind = job.get("行业", "")
-    if ind and ind in (l3.get("意向行业", "") or ""):
+    if ind and job_filters.industry_match(ind, _l3_list(l3, "意向行业")):
         reasons.append("行业匹配：%s" % ind)
     city = job.get("城市", "")
-    if city and city in (l3.get("意向城市", "") or ""):
+    if city and job_filters.city_match(city, _l3_list(l3, "意向城市")):
         reasons.append("城市匹配：%s" % city)
     return reasons
