@@ -51,7 +51,8 @@ _MODULES = ["schema", "config", "db", "formulas", "embedding", "user_profile", "
             "matching", "tasks", "verification", "recommend", "generation",
             "feedback", "delivery", "pipeline", "loop", "platforms", "session",
             "crawler", "form_filler", "llm", "logging_setup", "theme", "viz", "persona",
-            "workbench", "profile_plaza"]
+            "workbench", "wizard_ui", "wizard_steps", "responses", "replies", "data_reset", "job_filters",
+            "profile_plaza"]
 _failed = []
 for m in _MODULES:
     try:
