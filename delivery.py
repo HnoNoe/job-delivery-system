@@ -338,6 +338,10 @@ def deliver_batch(task_ids=None, stop_on_risk=True, limit=None, interval=None,
     from urllib.parse import urlparse as _urlparse
     needed = set()
     for _r in pending_rows[:budget]:
+        # 只有「半自动」需要浏览器点按钮；API/邮件/Web表单各自走自己的通道，
+        # 不能因为同批里有这些任务就强制启动浏览器（CI/无浏览器环境会整批失败）。
+        if classify_entry(_r["entry_type"], _r["entry_addr"]) != "半自动":
+            continue
         _link = _r["job_link"] or _r["entry_addr"] or ""
         _host = _urlparse(_link).hostname or ""
         for _pk, _domain in _session.platforms.COOKIE_DOMAINS.items():

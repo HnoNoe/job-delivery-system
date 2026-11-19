@@ -316,6 +316,17 @@ class BatchChannelTests(_DbCase):
         self.assertEqual(batch["失败数"], 1)
         self.assertEqual(batch["停止原因"], "")
 
+    def test_api_tasks_do_not_require_browser(self):
+        """API 任务不该触发浏览器预检（Mock/CI 无浏览器环境也能投）。"""
+        self.add_task("http://127.0.0.1:5001/job_detail/1.html", "API",
+                      "http://127.0.0.1:5001/api/apply")
+        with patch.object(session, "ensure_page",
+                          side_effect=AssertionError("API 任务不应启动浏览器")), \
+                patch.object(delivery, "deliver_one", return_value=(True, "API 已接受")):
+            batch = delivery.deliver_batch()
+        self.assertEqual(batch["投递数"], 1)
+        self.assertEqual(batch["成功数"], 1)
+
     def test_batch_aborts_when_browser_cannot_open(self):
         self.add_task("https://www.zhipin.com/job_detail/1.html")
         with patch.object(session, "ensure_page", return_value=(False, "profile 被占用")), \
