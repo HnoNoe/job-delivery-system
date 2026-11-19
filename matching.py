@@ -8,6 +8,7 @@ import config
 import db
 import schema
 import embedding
+import job_filters
 from formulas import formula_2_cosine, formula_3_match_score, interval_feature
 
 
@@ -94,9 +95,9 @@ def determine_target_jobs(profile):
                 continue
 
             # 硬约束过滤（集合过滤，非打分）。字段缺失时不据此过滤（缺失视为未知，宁多勿漏）
-            if hard["意向城市"] and f.get("城市") and f.get("城市") not in hard["意向城市"]:
+            if not job_filters.city_match(f.get("城市"), hard["意向城市"]):
                 continue
-            if hard["意向行业"] and f.get("行业") and f.get("行业") not in hard["意向行业"]:
+            if not job_filters.industry_match(f.get("行业"), hard["意向行业"]):
                 continue
             company = f.get("公司") or f.get("单位名称", "")
             if hard["禁忌公司"] and any(str(t) in str(company) for t in hard["禁忌公司"]):

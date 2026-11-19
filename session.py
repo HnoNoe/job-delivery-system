@@ -652,6 +652,22 @@ def _get_page(platform_key, hidden=False):
     return page
 
 
+def ensure_page(platform_key, hidden=True):
+    """确保该平台的浏览器已启动（不要求已登录）。批量投递前用它开浏览器。
+
+    返回 (ok, msg)；启动失败（profile 被占用/Chrome 缺失）时给出可读原因。
+    """
+    if not platforms.get(platform_key):
+        return False, "未知平台：%s" % platform_key
+    try:
+        _get_page(platform_key, hidden=hidden)
+        return True, "浏览器已就绪"
+    except RuntimeError as exc:
+        return False, str(exc)
+    except Exception as exc:  # noqa: BLE001
+        return False, "启动浏览器失败：%s" % exc
+
+
 def _write_debug(platform_key, lines):
     """把检索过程写进 data/search_debug_<平台>.log，便于排查「0 个岗位」。"""
     try:
@@ -991,69 +1007,358 @@ def dpage_open_job(platform_key, job_link):
 
 
 def dpage_deliver(platform_key, job_link):
-    """在岗位详情页点击「立即沟通」按钮（真实选择器 a.btn-startchat）。
+    """在岗位详情页点击投递按钮（平台可配：Boss/智联/拉勾/猎聘/前程无忧/Mock）。
 
-    返回 (ok, msg)；找不到按钮/登录失效/触发风控均返回 False 并给出可识别原因，
+    先按平台配置的 CSS 选择器点（Boss 的 a.btn-startchat），找不到再按按钮文案匹配
+    （立即沟通 / 聊一聊 / 投递简历 / 申请职位…）。返回 (ok, msg)：
+    找不到按钮 / 登录失效 / 触发风控 / 已投递 都返回 False 并给出可识别原因，
     供批量投递在检测到风控信号时立即停止。
     """
+    import json as _json
     page = _DPAGES.get(platform_key)
     if not page:
         return False, "登录浏览器未打开，无法投递"
     if not job_link:
         return False, "缺少岗位详情链接"
+    cfg = platforms.get(platform_key) or {}
+    selectors = cfg.get("deliver_click_selectors") or []
+    texts = cfg.get("deliver_click_texts") or ["立即沟通"]
     try:
         page.get(job_link)
         page.wait(3)
         # 登录态失效检测：导航后被重定向到登录页
         if "/web/user" in page.url or "login" in page.url.lower():
             return False, "登录态失效，请重新扫码登录"
-        r = page.run_js("""
-            var btn = document.querySelector('a.btn-startchat') || document.querySelector('.btn-startchat');
-            if (btn) { btn.click(); return '已点击立即沟通'; }
-            var body = (document.body && document.body.innerText) || '';
-            if (/验证|安全验证|滑块验证|风控/.test(body)) { return '风控验证'; }
-            return '未找到立即沟通按钮';
-        """)
-        r = str(r)
-        if "风控" in r:
+        r = str(page.run_js("""
+            const selectors = %s;
+            const texts = %s;
+            function visible(el) {
+                if (!el) return false;
+                const st = window.getComputedStyle(el);
+                if (st.display === 'none' || st.visibility === 'hidden') return false;
+                return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+            }
+            function canon(t) { return (t || '').replace(/\\s+/g, ''); }
+            // 1) 平台已知选择器
+            for (const sel of selectors) {
+                const el = document.querySelector(sel);
+                if (el && visible(el)) { el.click(); return 'ok:' + sel; }
+            }
+            const nodes = Array.from(document.querySelectorAll('a,button,[role=button]')).filter(visible);
+            // 2) 文案精确匹配
+            for (const el of nodes) {
+                const t = canon(el.innerText || el.textContent);
+                if (!t || t.length > 12) continue;
+                for (const x of texts) {
+                    if (t === canon(x)) { el.click(); return 'ok:' + x; }
+                }
+            }
+            // 3) 文案包含匹配（限制长度，避免点到标题/描述）
+            for (const el of nodes) {
+                const t = canon(el.innerText || el.textContent);
+                if (!t || t.length > 16) continue;
+                for (const x of texts) {
+                    const cx = canon(x);
+                    if (cx && t.indexOf(cx) >= 0) { el.click(); return 'ok:' + x; }
+                }
+            }
+            const body = (document.body && document.body.innerText) || '';
+            if (/安全验证|滑块验证|验证码|风控/.test(body)) return 'risk';
+            if (/已投递|已申请|已沟通|继续沟通/.test(body)) return 'done';
+            return 'notfound';
+        """ % (_json.dumps(selectors, ensure_ascii=False),
+               _json.dumps(texts, ensure_ascii=False))))
+        if r == "risk":
             return False, "触发风控验证，请人工处理后再投递"
-        if "未找到" in r:
-            return False, "未找到立即沟通按钮（岗位可能已下线或需人工查看）"
-        if r != "已点击立即沟通":
-            return False, "未确认沟通按钮操作成功：%s" % r
-        return True, r
+        if r == "done":
+            return False, "该岗位显示已投递/已沟通，请人工确认是否重复投递"
+        if r == "notfound":
+            return False, "未找到投递按钮（岗位可能已下线、平台改版或需人工查看）"
+        if not r.startswith("ok:"):
+            return False, "未确认投递按钮操作成功：%s" % r[:60]
+        msg = "已点击投递按钮（%s）" % r[3:]
+        success_texts = cfg.get("deliver_success_texts") or []
+        if success_texts:
+            confirmed_text = ""
+            for _ in range(3):
+                page.wait(1)
+                got = str(page.run_js("""
+                    const texts = %s;
+                    const body = (document.body && document.body.innerText) || '';
+                    for (const t of texts) {
+                        if (body.indexOf(t) >= 0) return t;
+                    }
+                    return 'none';
+                """ % _json.dumps(success_texts, ensure_ascii=False)))
+                if got and got != "none":
+                    confirmed_text = got
+                    break
+            if confirmed_text:
+                return True, msg + "；平台确认：%s" % confirmed_text
+            if cfg.get("auto_greeting"):
+                return False, "已点击投递按钮，但未检测到平台确认，请人工核对"
+        return True, msg
     except Exception as e:
         return False, str(e)
 
 
 def dpage_greet(platform_key, greeting):
-    """点击立即沟通后，在聊天框输入招呼语并发送。"""
+    """投递后在该平台的站内聊天框发送招呼语，并**确认它真的出现在聊天记录里**。
+
+    - 平台配置 `greet_supported=False`（前程无忧「申请职位」）直接跳过；
+    - 输入框按平台配置找，发送优先点「发送」按钮、其次模拟 Enter；
+    - 发送后轮询聊天记录（默认 4 秒，`config.GREET_CONFIRM_WAIT`）：
+      出现该招呼语 → 返回 True（任务记「已投递」）；
+      没出现 → 返回 False + “未检测到，请人工核对”（任务记「待核实」）。
+
+    确认时会排除输入框/编辑器区域，避免把“刚输入还没发出去的文字”误判成已发送。
+    """
     import json as _json
+    cfg = platforms.get(platform_key) or {}
+    if cfg.get("greet_supported") is False:
+        return True, "该平台为直接投递（申请职位），无站内招呼语"
     page = _DPAGES.get(platform_key)
     if not page:
         return False, "登录浏览器未打开"
+    input_selectors = cfg.get("greet_input_selectors") or [
+        ".chat-input textarea", ".chat-conversation textarea", "textarea",
+        "[contenteditable=true]"]
+    msg_selectors = cfg.get("greet_message_selectors") or [
+        "[class*=message]", "[class*=msg]", ".chat-conversation", ".msg-list"]
     try:
         page.wait(3)  # 等聊天面板打开
-        r = page.run_js("""
+        sent = str(page.run_js("""
             function sendGreet(text){
-                var inp = document.querySelector('.chat-input textarea') || document.querySelector('.chat-conversation textarea')
-                       || document.querySelector('textarea') || document.querySelector('[contenteditable="true"]');
-                if(!inp){ return '未找到聊天输入框'; }
-                if(inp.tagName && inp.tagName.toLowerCase()==='textarea'){
+                const selectors = %s;
+                let inp = null;
+                for (const sel of selectors) {
+                    const el = document.querySelector(sel);
+                    if (el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length)) {
+                        inp = el; break;
+                    }
+                }
+                if (!inp) return '未找到聊天输入框';
+                if ((inp.tagName || '').toLowerCase() === 'textarea') {
                     inp.value = text;
-                    inp.dispatchEvent(new Event('input',{bubbles:true}));
                 } else {
                     inp.textContent = text;
-                    inp.dispatchEvent(new Event('input',{bubbles:true}));
                 }
-                inp.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));
-                inp.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));
-                return '已尝试发送招呼语';
+                inp.dispatchEvent(new Event('input', {bubbles: true}));
+                inp.dispatchEvent(new Event('change', {bubbles: true}));
+                const nodes = Array.from(document.querySelectorAll('button,a,[role=button]'));
+                const send = nodes.find(function (el) {
+                    const t = (el.innerText || '').replace(/\\s+/g, '');
+                    return t === '发送' || t === '发送消息' || t === 'Send';
+                });
+                if (send) { send.click(); return '已点击发送按钮'; }
+                inp.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
+                inp.dispatchEvent(new KeyboardEvent('keyup', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
+                return '已尝试按 Enter 发送';
             }
             return sendGreet(%s);
-        """ % _json.dumps(greeting, ensure_ascii=False))
-        if r != "已尝试发送招呼语":
-            return False, str(r)
-        return False, "已尝试发送招呼语，请人工核对平台是否实际送达"
+        """ % (_json.dumps(input_selectors, ensure_ascii=False),
+               _json.dumps(greeting, ensure_ascii=False))))
+        if sent == "未找到聊天输入框":
+            return False, "未找到聊天输入框（聊天面板可能未打开或平台改版）"
+
+        # 发送后轮询聊天记录，确认招呼语真的出现（取前 16 个非空白字符做匹配，容忍换行/截断）
+        confirm_js = """
+            const selectors = %s;
+            const want = %s;
+            function norm(t) { return (t || '').replace(/\\s+/g, ''); }
+            const target = norm(want).slice(0, 16);
+            const composerSel = 'textarea, [contenteditable="true"], .chat-input, .chat-editor, .editor';
+            function hit(el) {
+                if (!el || el.closest(composerSel)) return false;
+                const t = norm(el.innerText || el.textContent);
+                return !!t && t.indexOf(target) >= 0;
+            }
+            let nodes = [];
+            for (const sel of selectors) {
+                nodes = nodes.concat(Array.from(document.querySelectorAll(sel)));
+            }
+            if (nodes.some(hit)) return 'confirmed';
+            const leaves = Array.from(document.querySelectorAll('div,span,p,li'))
+                                .filter(function (el) { return el.children.length === 0; });
+            return leaves.some(hit) ? 'confirmed' : 'unconfirmed';
+        """ % (_json.dumps(msg_selectors, ensure_ascii=False),
+               _json.dumps(greeting, ensure_ascii=False))
+        wait_seconds = max(1, int(getattr(config, "GREET_CONFIRM_WAIT", 4)))
+        confirmed = False
+        for _ in range(wait_seconds):
+            page.wait(1)
+            if str(page.run_js(confirm_js)) == "confirmed":
+                confirmed = True
+                break
+        if confirmed:
+            return True, "招呼语已发送并确认出现在聊天记录（%s）" % sent
+        return False, ("已尝试发送招呼语（%s），但聊天记录中未检测到该招呼语，请人工核对"
+                       % sent)
     except Exception as e:
         return False, str(e)
+
+
+def _extract_chat_items(page, platform_cfg):
+    """从消息页 DOM 提取会话条目。
+
+    配置了 `chat_item_selector` 的平台走结构化提取（Boss 实测结构）：
+    每条 `.friend-content-warp` 里有 `.name-text`(HR)、公司名 span、`.time`、`.last-msg-text`。
+    没配置的退回通用文本列表。
+    """
+    import json as _json
+    sel = platform_cfg.get("chat_item_selector")
+    if sel:
+        try:
+            return page.run_js(
+                """
+                const sel = %s;
+                const out = [];
+                document.querySelectorAll(sel).forEach(function (el) {
+                    const pick = function (s) {
+                        const n = el.querySelector(s);
+                        return n ? (n.innerText || '').trim().replace(/\\s+/g, ' ') : '';
+                    };
+                    const nameBox = el.querySelector('.name-box');
+                    let hr = pick('.name-text');
+                    let company = '';
+                    if (nameBox) {
+                        Array.from(nameBox.querySelectorAll('span')).forEach(function (s) {
+                            if (s.classList.contains('name-text')) return;
+                            if (!company) company = (s.innerText || '').trim();
+                        });
+                    }
+                    const titleEl = nameBox ? nameBox.querySelector('i.vline') : null;
+                    const title = (titleEl && titleEl.nextElementSibling)
+                        ? (titleEl.nextElementSibling.innerText || '').trim() : '';
+                    const msg = pick('.last-msg-text') || pick('.last-msg');
+                    if (!msg) return;
+                    out.push({
+                        '单位名称': company,
+                        '岗位名称': '',
+                        'HR': hr + (title ? '·' + title : ''),
+                        '最后消息': msg,
+                        '时间': pick('.time'),
+                        '未读': ''
+                    });
+                });
+                return out.slice(0, 100);
+                """ % _json.dumps(sel, ensure_ascii=False)) or []
+        except Exception:
+            return []
+    sel = platform_cfg.get("chat_dom_selector", "li.chat-item")
+    try:
+        return page.run_js(
+            """
+            const sel = %s;
+            const out = [];
+            document.querySelectorAll(sel).forEach(function (el) {
+                const t = (el.innerText || '').trim().replace(/\\s+/g, ' ');
+                if (t) { out.push(t); }
+            });
+            return out.slice(0, 100);
+            """ % _json.dumps(sel, ensure_ascii=False)) or []
+    except Exception:
+        return []
+
+
+def chat_capture(platform_key, timeout=12, wait=None):
+    """打开消息页，旁听会话接口 + 抓取会话列表（方案 B，只读，不发消息）。
+
+    返回 (ok, payloads, dom_items, debug)：
+    - payloads: 浏览器自己发的会话接口响应（dict/list，已尝试 JSON 解析）
+    - dom_items: 会话列表；能结构化解析时是统一字段 dict 列表，否则是可见文本列表
+
+    注意（实测 Boss 2026-11）：直接打开 /web/chat 会触发 `_security_check=1`
+    并重定向到职位页；**先打开首页再点顶部「消息」入口**才正常。另外会话列表
+    由 WebSocket 推送，HTTP 旁听拿不到，需要等 10 秒左右再读 DOM。
+    """
+    import json as _json
+    p = platforms.get(platform_key)
+    if not p or not p.get("chat_url"):
+        return False, [], [], ["该平台未配置消息页（chat_url）"]
+    try:
+        page = _get_page(platform_key, hidden=config.SEARCH_HIDDEN)
+    except RuntimeError as exc:
+        return False, [], [], ["浏览器启动失败: %s" % exc]
+
+    wait = int(wait if wait is not None else getattr(config, "CHAT_LOAD_WAIT", 10))
+    kw = p.get("chat_listen_kw", "zpchat")
+    payloads, dom_items, debug = [], [], []
+    try:
+        try:
+            page.listen.start(kw)
+        except Exception:
+            _DPAGES.pop(platform_key, None)
+            page = _get_page(platform_key, hidden=config.SEARCH_HIDDEN)
+            page.listen.start(kw)
+        # 走真人路径：首页 → 点「消息」；直接开 chat URL 容易被安全检查拦截
+        nav_clicked = False
+        home = p.get("chat_home_url") or ""
+        if not home:
+            from urllib.parse import urlsplit
+            parts = urlsplit(p.get("login_url", "") or "")
+            if parts.scheme and parts.netloc:
+                home = "%s://%s/" % (parts.scheme, parts.netloc)
+        try:
+            if home:
+                page.get(home)
+                page.wait(2)
+            clicked = page.run_js("""
+                const a = Array.from(document.querySelectorAll('a')).find(function (x) {
+                    return (x.innerText || '').trim() === '消息'
+                        || (x.getAttribute('href') || '').indexOf('/web/chat') >= 0
+                        || (x.getAttribute('href') || '').indexOf('/im') >= 0;
+                });
+                if (a) { a.click(); return true; }
+                return false;
+            """)
+            nav_clicked = bool(clicked)
+        except Exception:
+            nav_clicked = False
+        if not nav_clicked:
+            page.get(p["chat_url"])
+        page.wait(2)
+        # 登录态失效：被重定向到登录页
+        cfg = p.get("login_check", {})
+        if cfg.get("type") == "url_not_contains" and cfg.get("value", "") in page.url:
+            clear_session(platform_key)
+            return False, [], [], ["登录态已失效（被重定向到登录页），请回第②步重新扫码"]
+        debug.append("导航方式: %s | URL: %s" % ("点击消息入口" if nav_clicked else "直接打开",
+                                              page.url[:110]))
+        # 会话列表由 WebSocket 推送：等它渲染出来（Boss 实测需 ~10s）
+        deadline = time.time() + max(5, wait)
+        dom_items = []
+        while time.time() < deadline:
+            page.wait(2)
+            dom_items = _extract_chat_items(page, p)
+            if dom_items:
+                break
+        debug.append("DOM 会话条目: %d" % len(dom_items))
+        # 最多收 3 个包（HTTP 旁听；拿不到也不影响 DOM 解析）
+        for _ in range(3):
+            try:
+                packet = page.listen.wait(count=1, timeout=max(2, timeout // 3), fit_count=False)
+            except Exception:
+                packet = False
+            if packet in (False, None):
+                break
+            try:
+                body = packet.response.body
+            except Exception:
+                continue
+            if isinstance(body, (str, bytes)):
+                try:
+                    body = _json.loads(body)
+                except Exception:
+                    continue
+            payloads.append(body)
+        debug.append("捕获会话接口响应: %d" % len(payloads))
+    except Exception as exc:
+        debug.append("检查回复异常: %s" % exc)
+        return False, payloads, dom_items, debug
+    finally:
+        try:
+            page.listen.stop()
+        except Exception:
+            pass
+    return True, payloads, dom_items, debug
