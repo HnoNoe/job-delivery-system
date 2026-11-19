@@ -184,6 +184,74 @@ def get(platform_key):
     return PLATFORMS.get(platform_key)
 
 
+# ---------- 消息页配置（方案 B：手动触发检查 HR 回复） ----------
+# chat_url: 平台消息/会话页；chat_listen_kw: 旁听的关键字（浏览器自己发的会话接口）
+# chat_api_url: 有稳定 JSON 接口时优先用 requests（Mock 站用）；真实平台需浏览器 token，留空
+# chat_jobs_path / chat_field_map: 接口返回 -> 统一字段（单位/岗位/最后消息/时间/未读）
+# chat_dom_selector: 接口拿不到时，退回解析页面上的会话列表
+CHAT = {
+    "mock": {
+        "chat_url": "http://127.0.0.1:5001/web/geek/chat",
+        "chat_api_url": "http://127.0.0.1:5001/wapi/zpchat/geek/getUserJobList",
+        "chat_listen_kw": "zpchat",
+        "chat_jobs_path": "zpData.sessions",
+        "chat_field_map": {
+            "单位名称": "brandName",
+            "岗位名称": "jobName",
+            "HR": "bossName",
+            "最后消息": "lastMessage",
+            "时间": "lastTime",
+            "未读": "unread",
+        },
+        "chat_dom_selector": "li.chat-item",
+    },
+    "boss": {
+        "chat_url": "https://www.zhipin.com/web/chat/index",
+        "chat_home_url": "https://www.zhipin.com/",
+        "chat_listen_kw": "zpchat",
+        "chat_item_selector": ".friend-content-warp",
+        "chat_wait": 12,
+        "chat_dom_selector": ".friend-content-warp, li.chat-item, .chat-list li, .friend-list li",
+    },
+    "zhilian": {
+        "chat_url": "https://i.zhaopin.com/chat",
+        "chat_home_url": "https://i.zhaopin.com/",
+        "chat_listen_kw": "chat",
+        "chat_wait": 8,
+        "chat_dom_selector": "li.chat-item, .chat-list li, .im-list li, [class*=chat-item], [class*=session]",
+    },
+    # 以下三个平台的消息页/选择器**未实测**（本机没有对应登录态）。
+    # 结构拿不到时会落 data/chat_probe_<平台>.json，用 probe_platform_chat.py 校准。
+    "lagou": {
+        "chat_url": "https://www.lagou.com/wn/im",
+        "chat_home_url": "https://www.lagou.com/",
+        "chat_listen_kw": "im",
+        "chat_wait": 8,
+        "chat_wait": 8,
+        "chat_wait": 8,
+        "chat_wait": 8,
+        "chat_dom_selector": "li.chat-item, .im-list li, .chat-list li, [class*=chat-item]",
+    },
+    "liepin": {
+        "chat_url": "https://c.liepin.com/im",
+        "chat_home_url": "https://c.liepin.com/",
+        "chat_listen_kw": "im",
+        "chat_dom_selector": "li.chat-item, .im-list li, .chat-list li, [class*=chat-item]",
+    },
+    "job51": {
+        "chat_url": "https://i.51job.com/chat",
+        "chat_home_url": "https://i.51job.com/",
+        "chat_listen_kw": "chat",
+        "chat_wait": 8,
+        "chat_dom_selector": "li.chat-item, .chat-list li, [class*=chat-item]",
+    },
+}
+
+for _key, _chat in CHAT.items():
+    if _key in PLATFORMS:
+        PLATFORMS[_key].update(_chat)
+
+
 # 登录态联网检测：带保存的 cookie 访问"需要登录"的页面，看是否被跳回登录页。
 # 只用于判断登录是否有效，不抓取数据、不改动账号。
 AUTH_PROBES = {
@@ -301,3 +369,67 @@ def job_url(platform_key, value):
                  "lagou": "https://www.lagou.com/jobs/%s.html",
                  "job51": "https://jobs.51job.com/all/%s.html"}
     return templates[platform_key] % quote(link, safe="") if platform_key in templates else link
+
+# ---------- 投递渠道配置（批量投递用） ----------
+# deliver_click_selectors: 先按 CSS 精确点按钮（已知结构的平台优先）
+# deliver_click_texts:     找不到 CSS 时按按钮文字匹配（立即沟通/投递简历/申请职位…）
+# greet_input_selectors:   点击后站内聊天输入框候选
+# greet_supported:         该平台点击后是否会打开站内聊天（可发招呼语）
+DELIVERY = {
+    "mock": {
+        "deliver_click_selectors": ["a.btn-startchat", ".btn-startchat"],
+        "greet_message_selectors": [".chat-conversation", ".chat-message"],
+        "deliver_click_texts": ["立即沟通"],
+        "greet_input_selectors": [".chat-input textarea", ".chat-conversation textarea", "textarea"],
+        "greet_supported": True,
+    },
+    "boss": {
+        "deliver_click_selectors": ["a.btn-startchat", ".btn-startchat"],
+        "greet_message_selectors": [".chat-message", ".message-item", ".msg-content",
+                                    ".chat-record", ".chat-conversation", ".message"],
+        "deliver_click_texts": ["立即沟通"],
+        "greet_input_selectors": [".chat-input textarea", ".chat-conversation textarea",
+                                  "textarea", "[contenteditable=true]"],
+        "greet_supported": True,
+    },
+    "zhilian": {
+        # 实测（2026-11-19）：详情页按钮文案是「立即投递」，点击后平台自动发送简历+默认招呼语
+        "deliver_click_selectors": [],
+        "deliver_click_texts": ["立即投递", "立即沟通", "聊一聊", "打招呼", "投递简历",
+                                "立即申请", "申请职位"],
+        "deliver_success_texts": ["已向对方发送简历", "投递成功", "已投递成功", "简历投递成功"],
+        "auto_greeting": True,
+        "greet_input_selectors": ["textarea", "[contenteditable=true]"],
+        "greet_message_selectors": ["[class*=message]", "[class*=msg]", ".chat-conversation",
+                                    ".msg-list", ".chat-list"],
+        "greet_supported": True,
+    },
+    "lagou": {
+        "deliver_click_selectors": [],
+        "deliver_click_texts": ["立即投递", "立即沟通", "聊一聊", "投递简历", "申请职位"],
+        "greet_input_selectors": ["textarea", "[contenteditable=true]"],
+        "greet_message_selectors": ["[class*=message]", "[class*=msg]", ".chat-conversation",
+                                    ".msg-list", ".chat-list"],
+        "greet_supported": True,
+    },
+    "liepin": {
+        "deliver_click_selectors": [],
+        "deliver_click_texts": ["立即沟通", "聊一聊", "投递简历", "申请职位"],
+        "greet_input_selectors": ["textarea", "[contenteditable=true]"],
+        "greet_message_selectors": ["[class*=message]", "[class*=msg]", ".chat-conversation",
+                                    ".msg-list", ".chat-list"],
+        "greet_supported": True,
+    },
+    "job51": {
+        # 前程无忧以「申请职位」为主，通常没有站内聊天
+        "deliver_click_selectors": [],
+        "deliver_click_texts": ["立即投递", "立即申请", "申请职位", "投递简历"],
+        "greet_input_selectors": ["textarea", "[contenteditable=true]"],
+        "greet_supported": False,
+    },
+}
+
+for _key, _cfg in DELIVERY.items():
+    if _key in PLATFORMS:
+        PLATFORMS[_key].update(_cfg)
+

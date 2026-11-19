@@ -11,7 +11,7 @@ def main():
     commands = [["-m", "unittest", "discover", "-s", "tests", "-v"]]
     commands += [[name] for name in ("verify_formulas.py", "verify_resume_parse.py", "verify_rematch.py",
                                      "verify_viz.py", "verify_ui_compat.py", "verify_health.py",
-                                     "mock_e2e.py", "mock_restore_e2e.py")]
+                                     "mock_e2e.py", "mock_restore_e2e.py", "mock_replies_e2e.py")]
     failed = []
     for args in commands:
         print("\n>>> " + " ".join(args), flush=True)

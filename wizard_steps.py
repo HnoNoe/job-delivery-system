@@ -24,6 +24,8 @@ import persona
 import pipeline
 import platforms
 import recommend
+import replies
+import responses
 import schema
 import session
 import theme
@@ -212,6 +214,11 @@ def render_step_1(states):
         st.caption("信息已修改，请重新确认后检索和生成材料。")
     if st.session_state.get("info_confirmed"):
         st.caption("✅ 当前信息已确认；如果修改了上面的内容，需要重新确认。")
+
+    if not l2:
+        st.warning("⚠️ 还没有填写任何经历：画像技能为空，「技能匹配（40 分）」会全部拿不到分，"
+                   "匹配分也会固定为 0.5。建议至少填 1 段实习/项目经历，并在「技术工具」里写 "
+                   "Python、Flask、MySQL 等关键词。")
 
     if st.button("✅ 确认信息，进入下一步", type="primary"):
         ok, errors = verification.verify(user_data)
@@ -476,29 +483,71 @@ def render_step_5(states):
 
     greet_map = {d["task_id"]: d.get("招呼语", "") for d in r.get("delivery_report", [])}
     _conn = db.get_conn()
-    _task_states = {t["task_id"]: (t["status"], t["result"])
-                    for t in _conn.execute(
-                        "SELECT task_id, status, result FROM delivery_tasks WHERE user_id=?",
-                        (r["user_id"],)).fetchall()}
+    _task_states = {}
+    _task_entries = {}
+    for _t in _conn.execute(
+            "SELECT task_id, status, result, entry_type, entry_addr FROM delivery_tasks "
+            "WHERE user_id=?", (r["user_id"],)).fetchall():
+        _task_states[_t["task_id"]] = (_t["status"], _t["result"])
+        _task_entries[_t["task_id"]] = delivery.classify_entry(_t["entry_type"], _t["entry_addr"])
     _conn.close()
 
     _pending_tids = [tid for tid, (st_, _res) in _task_states.items() if st_ == "待投递"]
     if _pending_tids:
-        st.markdown("**🚀 批量投递（Boss 直聘）**")
-        st.caption("按匹配分顺序一键投递 %d 个岗位；受每日上限 %d / 单次批次 %d / 间隔 %d 秒保护，触发风控会自动停止。"
-                   % (len(_pending_tids), config.DAILY_SEND_LIMIT, config.BATCH_SEND_LIMIT,
-                      config.DELIVER_INTERVAL))
-        if st.button("🚀 批量投递（%d 个）" % len(_pending_tids), key="batch_deliver",
-                     disabled=config.SAFE_MODE):
-            with st.spinner("批量投递中（每条间隔 %d 秒，防封号）..." % config.DELIVER_INTERVAL):
-                _batch = delivery.deliver_batch(task_ids=_pending_tids)
-            st.success("✅ 批量投递完成：成功 %d / 失败 %d" % (_batch["成功数"], _batch["失败数"]))
+        _pending_by_entry = {}
+        for _tid in _pending_tids:
+            _k = _task_entries.get(_tid, "半自动")
+            _pending_by_entry[_k] = _pending_by_entry.get(_k, 0) + 1
+        _entry_txt = " · ".join("%s %d" % (k, v) for k, v in sorted(_pending_by_entry.items()))
+        _remaining_today = max(0, config.DAILY_SEND_LIMIT - delivery._daily_sends())
+        _all_cap = min(len(_pending_tids), _remaining_today)
+        _batch_n = min(config.BATCH_SEND_LIMIT, len(_pending_tids), _remaining_today)
+        st.markdown("**🚀 批量投递（全部渠道）**")
+        st.caption("待投递 **%d** 个（%s）· 今日已成功 **%d** 条 · 今日剩余额度 **%d** 条"
+                   "（每日上限 %d）"
+                   % (len(_pending_tids), _entry_txt or "—",
+                      config.DAILY_SEND_LIMIT - _remaining_today,
+                      _remaining_today, config.DAILY_SEND_LIMIT))
+        st.caption("单批模式：每次最多 %d 个、间隔 %d 秒；全部模式：把**今日剩余额度**一次投完，"
+                   "间隔 %d 秒。额度用完需明天继续，或调高 config.py 的 DAILY_SEND_LIMIT（有封号风险）。"
+                   % (config.BATCH_SEND_LIMIT, config.DELIVER_INTERVAL,
+                      config.DELIVER_INTERVAL_ALL))
+        _b1, _b2 = st.columns(2)
+        with _b1:
+            if st.button("🚀 投递 %d 个" % _batch_n, key="batch_deliver",
+                         disabled=config.SAFE_MODE or not _pending_tids,
+                         help="按匹配分顺序投 %d 个（单批上限），间隔 %d 秒"
+                              % (config.BATCH_SEND_LIMIT, config.DELIVER_INTERVAL)):
+                with st.spinner("批量投递中（每条间隔 %d 秒，防封号）..." % config.DELIVER_INTERVAL):
+                    _batch = delivery.deliver_batch(task_ids=_pending_tids)
+                st.session_state["_batch_result"] = _batch
+                st.rerun()
+        with _b2:
+            if st.button("🌊 全部投递（今日 %d 个）" % _all_cap, key="batch_deliver_all",
+                         disabled=config.SAFE_MODE or _all_cap <= 0,
+                         help="今日剩余额度 %d 条；待投递共 %d 个，超出部分需明天继续。间隔 %d 秒"
+                              % (_all_cap, len(_pending_tids), config.DELIVER_INTERVAL_ALL)):
+                _eta = max(1, int(round(_all_cap * config.DELIVER_INTERVAL_ALL / 60.0)))
+                with st.spinner("全部投递中：%d 个岗位，每条间隔 %d 秒（约 %d 分钟）..."
+                                % (_all_cap, config.DELIVER_INTERVAL_ALL, _eta)):
+                    _batch = delivery.deliver_batch(task_ids=_pending_tids,
+                                                    limit=_all_cap,
+                                                    interval=config.DELIVER_INTERVAL_ALL,
+                                                    all_pending=True)
+                st.session_state["_batch_result"] = _batch
+                st.rerun()
+
+        _batch = st.session_state.pop("_batch_result", None)
+        if _batch:
+            st.success("✅ 投递完成：成功 %d / 失败 %d" % (_batch["成功数"], _batch["失败数"]))
+            if _batch.get("按渠道"):
+                st.caption("按渠道：" + " · ".join("%s %d" % (k, v)
+                                                   for k, v in sorted(_batch["按渠道"].items())))
             if _batch["停止原因"]:
                 st.warning("⚠️ " + _batch["停止原因"])
             for _tid, _ok, _msg in _batch["明细"]:
                 if not _ok:
                     st.caption(f"· 任务{_tid}：{_msg}")
-            st.rerun()
 
     _targets = r["target_jobs"]
     _delivered_n = sum(1 for _s, _r2 in _task_states.values() if _s == "已投递")
@@ -647,12 +696,125 @@ def render_step_6(states):
         st.caption("当前还没有投递任务。")
         return
 
+    # ---- HR 回应（手动 + 方案 B 识别；只写本机 SQLite，不联网、不外传） ----
+    uid = _r["user_id"]
+    _latest_resp = responses.latest_by_task(uid)
+    _resp_stat = responses.summary(uid)
+
     rows = [{"岗位": t["job_name"], "单位": t["unit_name"],
-             "投递状态": t["status"], "回应/结果": t["result"] or "—"} for t in tasks]
+             "投递状态": t["status"],
+             "最新HR回应": (_latest_resp.get(t["task_id"]) or {}).get("kind", "—"),
+             "回应时间": (_latest_resp.get(t["task_id"]) or {}).get("first_seen", "—"),
+             "画像反馈": t["result"] or "—"} for t in tasks]
     theme.dataframe(pd.DataFrame(rows), hide_index=True)
     st.download_button("📥 导出投递记录 CSV",
                        data=pd.DataFrame(rows).to_csv(index=False).encode("utf-8-sig"),
                        file_name="投递记录.csv", mime="text/csv")
+
+    with st.expander("📝 登记 HR 回应（手动，本地保存）", expanded=False):
+        st.caption("平台没有公开 API，回应由你手动登记或由下面的「检查新回复」识别；"
+                   "共 %d 条记录，只写本机数据库。" % _resp_stat["总数"])
+        _labels = {t["task_id"]: "%s @ %s" % (t["job_name"] or "", t["unit_name"] or "")
+                   for t in tasks if t["status"] not in ("待生成",)}
+        if not _labels:
+            st.caption("还没有已生成的投递任务。")
+        else:
+            c1, c2 = st.columns([2, 1])
+            _tid = c1.selectbox("选择岗位", list(_labels),
+                                format_func=lambda x: "#%d %s" % (x, _labels[x]), key="resp_task")
+            _kind = c2.selectbox("回应类型", list(responses.KINDS), key="resp_kind")
+            st.caption(responses.KIND_HINT.get(_kind, ""))
+            _note = st.text_input("备注（可选，如 HR 约的面试时间/渠道）", key="resp_note")
+            if st.button("➕ 登记回应", key="resp_add", type="primary"):
+                ok, msg, _rid = responses.add_response(_tid, _kind, _note)
+                if ok:
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.warning(msg)
+
+    with st.expander("🔎 检查新回复（方案 B：手动触发，只读会话列表）", expanded=False):
+        st.caption("用已登录浏览器打开消息页，只读取会话列表，不发送任何内容；"
+                   "识别结果需要你勾选后才写入回应记录。请勿高频点击（平台有风控）。")
+        _logged = [k for k in platforms.PLATFORMS if session.can_search(k)]
+        if not _logged:
+            st.caption("🔒 先在第②阶段完成至少一个平台的登录。")
+        else:
+            _pk = st.selectbox("平台", _logged,
+                               format_func=lambda x: platforms.get(x)["name"], key="reply_pk")
+            if st.button("🔎 检查新回复", key="reply_check", type="primary"):
+                with st.spinner("正在读取消息页（只读，约 10~20 秒）..."):
+                    _check = replies.check(_pk, [dict(t) for t in tasks])
+                # 注意：不能写 st.session_state["reply_check"]——那是按钮的 widget key，
+                # 控件实例化后不可修改，会抛 StreamlitWidgetAlreadyInstantiatedError。
+                st.session_state["reply_check_result"] = _check
+                st.session_state["reply_check_platform"] = _pk
+                st.rerun()
+
+            _check = st.session_state.get("reply_check_result")
+            if _check:
+                if _check.get("error"):
+                    st.warning(_check["error"])
+                if _check.get("debug"):
+                    with st.expander("调试信息", expanded=False):
+                        for _line in _check["debug"]:
+                            st.caption("· " + _line)
+                _cands = _check.get("candidates") or []
+                st.caption("识别到 %d 条会话记录，匹配到 %d 个投递岗位。"
+                           % (len(_check.get("records") or []), len(_cands)))
+                if _check.get("probe"):
+                    st.info("未识别到结构化会话，原始样本已保存：%s"
+                            "（可据此调整 platforms.py 里的 chat 字段映射）" % _check["probe"])
+                if _cands:
+                    _df = pd.DataFrame([{
+                        "任务": c["task_id"], "岗位": c["岗位"], "单位": c["单位"],
+                        "建议类型": c["建议类型"], "匹配度": c["匹配度"],
+                        "最后消息": (c["最后消息"] or "")[:60], "时间": c["时间"],
+                    } for c in _cands])
+                    theme.dataframe(_df, hide_index=True)
+                    _labels = ["#%d %s @ %s（%s）" % (c["task_id"], c["岗位"], c["单位"],
+                                                     c["建议类型"]) for c in _cands]
+                    _pick = st.multiselect("选择要登记为 HR 回应的条目", _labels,
+                                           default=_labels, key="reply_pick")
+                    if st.button("📥 登记选中回应", key="reply_register"):
+                        _chosen = [c for c, lb in zip(_cands, _labels) if lb in _pick]
+                        _added, _dup, _details = replies.register(
+                            _chosen, platform_key=st.session_state.get("reply_check_platform", ""))
+                        st.success("新增 %d 条，重复 %d 条" % (_added, _dup))
+                        if _added:
+                            st.rerun()
+
+                _unmatched = _check.get("unmatched") or []
+                if _unmatched:
+                    st.markdown("**未匹配到投递任务的会话**（可能是别处投递/非本系统记录，仅供参考）")
+                    _udf = pd.DataFrame([{
+                        "单位": u["单位"] or "—", "岗位": u["岗位"] or "—", "HR": u["HR"] or "—",
+                        "建议类型": u["建议类型"], "最后消息": (u["最后消息"] or "")[:60],
+                        "时间": u["时间"] or "—",
+                    } for u in _unmatched])
+                    theme.dataframe(_udf, hide_index=True)
+
+    _resp_rows = responses.list_responses(uid)
+    if _resp_rows:
+        st.markdown("**📨 HR 回应时间线**（最新在上）")
+        _timeline = [{"时间": r["first_seen"], "岗位": r["job_name"], "单位": r["unit_name"],
+                      "回应": r["kind"], "备注": r["content"] or "—",
+                      "来源": "手动" if r["source"] == "manual" else r["source"]}
+                     for r in _resp_rows]
+        theme.dataframe(pd.DataFrame(_timeline), hide_index=True)
+        st.download_button("📥 导出 HR 回应 CSV",
+                           data=pd.DataFrame(responses.export_rows(uid)).to_csv(index=False).encode("utf-8-sig"),
+                           file_name="hr回应记录.csv", mime="text/csv")
+
+    _inbox = replies.list_inbox(50)
+    if _inbox:
+        with st.expander("📥 检查到的 HR 消息（含未匹配任务，本机全部账号）", expanded=False):
+            theme.dataframe(pd.DataFrame([{
+                "时间": r["first_seen"], "单位": r["company"] or "—", "HR": r["hr"] or "—",
+                "类型": r["kind"], "消息": (r["message"] or "")[:60],
+                "关联任务": ("#%d" % r["task_id"]) if r["task_id"] else "—",
+            } for r in _inbox]), hide_index=True)
+            st.caption("收件箱只记录本机读到的会话（幂等去重），不联网、不外传。")
 
     stats = feedback.get_quality(_r["user_id"])
     _s1, _s2, _s3, _s4, _s5 = st.columns(5)
@@ -663,6 +825,10 @@ def render_step_6(states):
     _s5.metric("画像快照", stats["快照数"], help="每次反馈后画像自动优化")
     if stats["已投递平均匹配分"]:
         st.caption("📐 已投递岗位的平均匹配分（式三 p）：%s" % stats["已投递平均匹配分"])
+    _kc = _resp_stat["分类"]
+    st.caption("📨 已登记 HR 回应 %d 条：邀面试 %d · 不合适 %d · 已查看 %d · 无回复 %d · 其他 %d"
+               % (_resp_stat["总数"], _kc.get("邀面试", 0), _kc.get("不合适", 0),
+                  _kc.get("已查看", 0), _kc.get("无回复", 0), _kc.get("其他", 0)))
 
     ev = feedback.get_profile_evolution(_r["user_id"])
     if len(ev) >= 2:

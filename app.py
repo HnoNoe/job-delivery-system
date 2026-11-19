@@ -15,12 +15,15 @@
 """
 import json
 
+import pandas as pd
 import streamlit as st
 
 import config
+import data_reset
 import db
 import platforms
 import recommend as _recommend
+import replies
 import session
 import theme
 import wizard_steps as steps
@@ -46,6 +49,73 @@ st.set_page_config(page_title="求职批量投递系统", page_icon="🎯", layo
 theme.apply()
 db.init_db()
 
+CLEAR_DIALOG_KEY = "_show_clear_dialog"
+
+
+def _reset_ui_state():
+    """清空界面会话状态（不动数据库/文件）。"""
+    for k in list(st.session_state.keys()):
+        if (k in ("info_confirmed", "confirmed_info", "confirmed_user_data",
+                  "wizard_page", "_wizard_flash", "_login_flash",
+                  "logged_in", "jobs", "result", "parsed",
+                  "resume_pdf", "resume_text", "parsed_pdf_hash",
+                  "rematch", "rematch_old", "prepared_user_data",
+                  "selected_platforms", "qr_login_pk", "_qr_closing",
+                  "reply_check_result", "reply_check_platform", "reply_pick")
+                or k.startswith(("l0_", "l2_", "l3_", "sel_"))
+                or k in ("l1_iw", "l1_proj")):
+            st.session_state.pop(k, None)
+    st.session_state.pop("login_report", None)
+    st.session_state.pop("_restored_info_notice", None)
+    st.session_state.pop("_auto_reply_outcome", None)
+    st.session_state.pop("_auto_reply_attempted", None)
+    st.session_state["_no_auto_restore"] = True
+    st.session_state[ui.PAGE_KEY] = 0
+
+
+def _do_clear(clear_login):
+    """执行清空（数据库 + 文件 [ + 登录态 ]），并重置界面。"""
+    summary = data_reset.reset_all(clear_login=clear_login)
+    _reset_ui_state()
+    st.session_state["_clear_done"] = summary
+    st.session_state.pop(CLEAR_DIALOG_KEY, None)
+
+
+def _clear_confirm_body():
+    st.warning("以下数据会被**永久删除**，无法撤销：")
+    st.markdown(
+        "- 用户信息、L2 经历、画像权重与画像快照\n"
+        "- 岗位、目标岗位、投递任务、反馈样本\n"
+        "- HR 回应记录与收件箱\n"
+        "- 生成的简历 PDF、投递材料包、发件箱\n"
+        "- Mock 投递/回复记录、自动检查状态与计数")
+    st.caption("保留：数据库表结构、主题偏好、代码与配置。")
+    _clear_login = st.checkbox("同时清除平台登录态（需要重新扫码）",
+                               value=False, key="_clear_login_too")
+    _ok = st.checkbox("我确认清空本机数据（不可撤销）", value=False, key="_clear_confirmed")
+    c1, c2 = st.columns(2)
+    if c1.button("取消", key="_clear_cancel"):
+        st.session_state.pop(CLEAR_DIALOG_KEY, None)
+        st.rerun()
+    if c2.button("🧹 确认清空", key="_clear_do", type="primary", disabled=not _ok):
+        _do_clear(_clear_login)
+        st.rerun()
+
+
+def _clear_data_dialog():
+    _clear_confirm_body()
+
+
+if hasattr(st, "dialog"):
+    _clear_data_dialog = st.dialog("确认清空本机数据")(_clear_data_dialog)
+
+
+def _clear_data_inline():
+    with st.container(border=True):
+        st.markdown("**🧹 清空本机数据**")
+        _clear_confirm_body()
+
+
 # 兼容旧会话：上一版只保存了 confirmed_info（JSON 字符串），没有 confirmed_user_data
 if ("confirmed_user_data" not in st.session_state
         and st.session_state.get("confirmed_info")):
@@ -68,6 +138,79 @@ ui.consume_flash()
 _notice = st.session_state.pop("_restored_info_notice", None)
 if _notice:
     st.info(_notice)
+
+_clear_summary = st.session_state.pop("_clear_done", None)
+if _clear_summary:
+    _cleared_tables = sum(1 for v in (_clear_summary.get("database") or {}).values() if v)
+    _cleared_files = len(_clear_summary.get("files") or [])
+    st.success("🧹 已清空本机数据：%d 张表有数据被删除，清理 %d 个文件/目录%s。"
+               % (_cleared_tables, _cleared_files,
+                  "，平台登录态已清除（需重新扫码）" if _clear_summary.get("clear_login")
+                  else "（平台登录态保留）"))
+
+# ---------------- 启动自动检查 HR 回复（每个会话一次，带冷却期） ----------------
+_auto_uid = ((st.session_state.get("result") or {}).get("user_id")
+             or ui.persisted_progress().get("user_id"))
+_auto_tasks = []
+if _auto_uid:
+    with db.get_conn() as _auto_conn:
+        _auto_tasks = [dict(r) for r in _auto_conn.execute(
+            "SELECT task_id, job_name, unit_name, status FROM delivery_tasks "
+            "WHERE user_id=? ORDER BY task_id", (_auto_uid,))]
+_auto_candidates = getattr(config, "AUTO_CHECK_PLATFORMS", ["boss"])
+_auto_pks = [pk for pk in _auto_candidates
+             if platforms.get(pk) and session.has_session(pk) and replies.supports_chat(pk)]
+
+if (not st.session_state.get("_auto_reply_attempted")
+        and st.session_state.get("auto_reply_enabled", config.AUTO_CHECK_REPLIES)
+        and _auto_pks and _auto_tasks):
+    st.session_state["_auto_reply_attempted"] = True
+    _remain = replies.cooldown_remaining()
+    if _remain <= 0:
+        _names = "、".join(platforms.get(pk)["name"] for pk in _auto_pks)
+        with st.spinner("启动自动检查：正在读取 %s 的消息列表（只读，约 20 秒/平台）…" % _names):
+            st.session_state["_auto_reply_outcome"] = replies.auto_check_multi(
+                _auto_pks, _auto_tasks)
+    else:
+        st.session_state["_auto_reply_outcome"] = {
+            "ran": False,
+            "reason": "冷却中：约 %.0f 分钟后可再次自动检查" % _remain,
+            "added": 0, "results": []}
+    st.rerun()
+
+_auto_out = st.session_state.get("_auto_reply_outcome")
+if _auto_out:
+    if _auto_out.get("ran"):
+        _auto_sum = _auto_out.get("summary") or {}
+        _auto_results = _auto_out.get("results") or []
+        st.success("🤖 启动自动检查完成：%d 个平台 · 读取 %d 条会话 · 匹配 %d 个岗位 · "
+                   "自动登记 %d 条 HR 回应 · 收件箱 +%d 条。"
+                   % (len(_auto_results), _auto_sum.get("records", 0),
+                      _auto_sum.get("candidates", 0), _auto_sum.get("added", 0),
+                      _auto_sum.get("inbox_added", 0)))
+        _auto_lines = []
+        for _item in _auto_results:
+            _pk = _item["platform"]
+            _entry = next((e for e in (_auto_sum.get("platforms") or [])
+                           if e.get("platform") == _pk), {})
+            _status = "✅" if _entry.get("ok") else "⚠️"
+            _auto_lines.append("%s %s：读取 %d 条，匹配 %d，登记 %d%s"
+                               % (_status, (platforms.get(_pk) or {}).get("name", _pk),
+                                  _entry.get("records", 0), _entry.get("candidates", 0),
+                                  _entry.get("added", 0),
+                                  ("（%s）" % _entry["error"]) if _entry.get("error") else ""))
+        st.caption("；".join(_auto_lines))
+        _auto_unmatched = [u for _item in _auto_results
+                           for u in ((_item.get("result") or {}).get("unmatched") or [])]
+        if _auto_unmatched:
+            with st.expander("🤖 未匹配到投递任务的会话（仅参考）", expanded=False):
+                theme.dataframe(pd.DataFrame([{
+                    "单位": u["单位"] or "—", "HR": u["HR"] or "—",
+                    "建议类型": u["建议类型"],
+                    "最后消息": (u["最后消息"] or "")[:60], "时间": u["时间"] or "—",
+                } for u in _auto_unmatched]), hide_index=True)
+    else:
+        st.caption("🤖 自动检查跳过：" + (_auto_out.get("reason") or ""))
 
 # ---------------- 侧边栏：进度 + 跳转 + 重置 + 状态 ----------------
 with st.sidebar:
@@ -96,22 +239,7 @@ with st.sidebar:
             for pk in platforms.PLATFORMS:
                 session.clear_session(pk)
                 session.dpage_quit(pk)  # 同时关闭保持打开的浏览器
-            for k in list(st.session_state.keys()):
-                if (k in ("info_confirmed", "confirmed_info", "confirmed_user_data",
-                          "wizard_page", "_wizard_flash", "_login_flash",
-                          "logged_in", "jobs", "result", "parsed",
-                          "resume_pdf", "resume_text", "parsed_pdf_hash",
-                          "rematch", "rematch_old", "prepared_user_data",
-                          "selected_platforms", "qr_login_pk", "_qr_closing")
-                        or k.startswith(("l0_", "l2_", "l3_", "sel_"))
-                        or k in ("l1_iw", "l1_proj")):
-                    st.session_state.pop(k, None)
-            st.session_state.pop("login_report", None)
-            st.session_state.pop("_restored_info_notice", None)
-            # 明确“从零开始”：本次会话不再自动回填上次确认的信息 / 进度，
-            # 直到用户重新确认信息（第①阶段的确认按钮会清掉这个标记）。
-            st.session_state["_no_auto_restore"] = True
-            st.session_state[ui.PAGE_KEY] = 0
+            _reset_ui_state()
             st.rerun()
     with c_safe:
         st.caption("安全模式")
@@ -125,6 +253,48 @@ with st.sidebar:
         config.SAFE_MODE = bool(_safe)
     if not config.SAFE_MODE:
         st.caption("⚠️ 安全模式已关闭：投递会真实发送，请自行确认风险。")
+
+    if st.button("🧹 清空本机数据", key="btn_clear_data",
+                 help="删除用户信息、投递记录、HR 回应、生成的简历与材料；需要二次确认"):
+        st.session_state[CLEAR_DIALOG_KEY] = True
+        st.rerun()
+    st.divider()
+
+    def _save_auto_toggle():
+        replies.set_auto_enabled(bool(st.session_state.get("auto_reply_toggle")))
+
+    st.toggle(
+        "启动时自动检查 HR 回复",
+        value=replies.auto_enabled(),
+        key="auto_reply_toggle",
+        on_change=_save_auto_toggle,
+        help="每次启动读取一次消息列表，并自动登记能判断类型的 HR 回应；"
+             "冷却 %d 分钟内不会重复检查（防触发平台风控）。" % config.AUTO_CHECK_COOLDOWN_MIN,
+    )
+    _last_auto = replies.last_auto_check()
+    if _last_auto:
+        st.caption("上次自动检查：%s · 读取 %d 条 · 新登记 %d 条 · 收件箱 +%d%s"
+                   % (_last_auto.get("at", ""), _last_auto.get("records", 0),
+                      _last_auto.get("added", 0), _last_auto.get("inbox_added", 0),
+                      (" · " + _last_auto["error"]) if _last_auto.get("error") else ""))
+        for _entry in (_last_auto.get("platforms") or []):
+            st.caption("　· %s：读取 %d · 匹配 %d · 登记 %d%s"
+                       % ((platforms.get(_entry.get("platform")) or {}).get(
+                              "name", _entry.get("platform")),
+                          _entry.get("records", 0), _entry.get("candidates", 0),
+                          _entry.get("added", 0),
+                          ("（%s）" % _entry["error"]) if _entry.get("error") else ""))
+    _remain = replies.cooldown_remaining()
+    if _remain > 0:
+        st.caption("自动检查冷却中：约 %.0f 分钟后可再次自动执行" % _remain)
+    if _auto_pks and _auto_tasks:
+        if st.button("🔄 立即检查一次", key="auto_now",
+                     help="忽略冷却，立即读取一次已登录平台的消息列表（只读）"):
+            with st.spinner("正在读取 %s 的消息列表（只读，约 20 秒/平台）…"
+                            % "、".join(platforms.get(pk)["name"] for pk in _auto_pks)):
+                st.session_state["_auto_reply_outcome"] = replies.auto_check_multi(
+                    _auto_pks, _auto_tasks, cooldown_minutes=0)
+            st.rerun()
     st.divider()
 
     st.caption("平台登录状态（启动 / 刷新页面时自动检测）")
@@ -154,6 +324,13 @@ with st.sidebar:
         st.caption("意向岗位：" + ("、".join(summ.get("意向岗位", [])) or "无"))
         st.caption("意向行业：" + ("、".join(summ.get("意向行业", [])) or "无"))
         st.caption("城市：" + ("、".join(summ.get("意向城市", [])) or "无"))
+
+# ---------------- 清空本机数据：二次确认（弹窗） ----------------
+if st.session_state.get(CLEAR_DIALOG_KEY):
+    if hasattr(st, "dialog"):
+        _clear_data_dialog()
+    else:
+        _clear_data_inline()
 
 # ---------------- 当前阶段进度 ----------------
 st.progress((page + 1) / float(len(ui.STEP_SHORT)),
