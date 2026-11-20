@@ -12,6 +12,7 @@ import os
 import re
 import sqlite3
 import json
+import threading
 from pathlib import Path
 import config
 
@@ -61,26 +62,41 @@ class Row(dict):
 
 
 class _MySQLCursor:
-    def __init__(self, cur):
-        self._cur = cur
+    """已物化结果的游标：先取回全部行，支持多次消费同一快照。
+
+    缓存命中时用同一份快照构造新游标，避免「游标只能读一遍」的陷阱。
+    """
+    def __init__(self, cur=None, snapshot=None):
+        if snapshot is not None:
+            self._rows, self._lastrowid, self._rowcount = snapshot
+        else:
+            self._rows = [Row(r) for r in cur.fetchall()]
+            self._lastrowid = cur.lastrowid
+            self._rowcount = cur.rowcount
+        self._pos = 0
 
     def fetchone(self):
-        r = self._cur.fetchone()
-        return Row(r) if r is not None else None
+        if self._pos >= len(self._rows):
+            return None
+        r = self._rows[self._pos]
+        self._pos += 1
+        return r
 
     def fetchall(self):
-        return [Row(r) for r in self._cur.fetchall()]
+        r = self._rows[self._pos:]
+        self._pos = len(self._rows)
+        return list(r)
 
     def __iter__(self):
-        return (Row(r) for r in self._cur)
+        return iter(self._rows)
 
     @property
     def lastrowid(self):
-        return self._cur.lastrowid
+        return self._lastrowid
 
     @property
     def rowcount(self):
-        return self._cur.rowcount
+        return self._rowcount
 
 
 class MySQLShim:
@@ -96,28 +112,83 @@ class MySQLShim:
             charset="utf8mb4", autocommit=False, connect_timeout=10,
             read_timeout=60, write_timeout=60,
             cursorclass=pymysql.cursors.DictCursor)
+        # 跨公网 RTT 高达数百毫秒，而一次页面重跑会对同一批只读查询反复取数。
+        # 进程内读缓存：SELECT 结果按 (语句, 参数) 复用；任何写语句整表清空缓存。
+        self._rcache = {}
+        # 事务脏标记：只有真正发过写语句才需要 COMMIT/ROLLBACK 网络往返，
+        # 纯读页面零网络开销（每次 get_conn 的检查也跳过 ROLLBACK 包）。
+        self._dirty = False
+
+    @staticmethod
+    def _is_select(sql):
+        return sql.lstrip()[:6].upper() == "SELECT"
+
+    def _reconnect(self):
+        """断线重连并重置会话状态（缓存与脏标记随新会话重建）。"""
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+        self.__init__()
+
+    @staticmethod
+    def _lost(e):
+        return getattr(e, "args", [0])[0] in (2002, 2003, 2006, 2013, 2055)
 
     def execute(self, sql, params=None):
+        sql = _translate(sql)
+        params = params or ()
+        if not isinstance(params, tuple):
+            params = tuple(params)
+        if self._is_select(sql):
+            snap = self._rcache.get((sql, params))
+            if snap is not None:
+                return _MySQLCursor(snapshot=snap)
+        else:
+            self._rcache.clear()
+            self._dirty = True
         cur = self._conn.cursor()
-        cur.execute(_translate(sql), params or ())
-        return _MySQLCursor(cur)
+        try:
+            cur.execute(sql, params)
+        except Exception as e:
+            if not self._lost(e):
+                raise
+            self._reconnect()
+            cur = self._conn.cursor()
+            cur.execute(sql, params)
+        wrapped = _MySQLCursor(cur)
+        if self._is_select(sql):
+            self._rcache[(sql, params)] = (wrapped._rows, wrapped._lastrowid, wrapped._rowcount)
+        return wrapped
 
     def executemany(self, sql, seq):
+        self._rcache.clear()
+        self._dirty = True
         cur = self._conn.cursor()
         cur.executemany(_translate(sql), seq)
         return _MySQLCursor(cur)
 
     def cursor(self):
+        self._dirty = True  # 裸游标用途不可预期，按可能写入处理
         return self._conn.cursor()
 
     def commit(self):
-        self._conn.commit()
+        if self._dirty:
+            self._conn.commit()
+            self._dirty = False
 
     def rollback(self):
-        self._conn.rollback()
+        if self._dirty:
+            self._conn.rollback()
+            self._dirty = False
 
     def close(self):
-        self._conn.close()
+        # 连接归还给线程池而非真正断开：先回滚未提交事务，
+        # 与「每次新建连接」语义一致（旧连接丢弃未提交改动），但免去公网重连开销。
+        try:
+            self.rollback()
+        except Exception:
+            pass
 
     def __enter__(self):
         return self
@@ -125,11 +196,11 @@ class MySQLShim:
     def __exit__(self, exc_type, *args):
         try:
             if exc_type is None:
-                self._conn.commit()
+                self.commit()
             else:
-                self._conn.rollback()
+                self.rollback()
         finally:
-            self._conn.close()
+            self.close()
 
 
 def is_mysql():
@@ -137,13 +208,31 @@ def is_mysql():
 
 
 def get_conn():
-    if _resolve_url():
-        return MySQLShim()
+    url = _resolve_url()
+    if url:
+        # 线程级连接复用：Streamlit 每次交互重跑整页、查询数十次，
+        # 若每次新建公网 TCP+鉴权（几十~几百毫秒）会明显卡顿。
+        # 同一连接同时只归一个线程使用；断线自动重连；
+        # 回滚上次中断遗留的未提交事务，保持「只读已提交数据」的语义。
+        shim = getattr(_tls, "_shim", None)
+        if shim is not None and not shim._conn.open:
+            shim = None  # 本地套接字检查（零网络开销）；断线由 execute 内重连兜底
+        if shim is None:
+            shim = MySQLShim()
+            _tls._shim = shim
+        try:
+            shim.rollback()  # 仅有未提交事务时才发 ROLLBACK 包
+        except Exception:
+            pass
+        return shim
     Path(config.DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(config.DB_PATH, timeout=30, factory=Connection)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=30000")
     return conn
+
+
+_tls = threading.local()
 
 
 # ---- 建表 DDL ----
