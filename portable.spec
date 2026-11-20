@@ -13,7 +13,7 @@ datas, binaries, hiddenimports = [], [], []
 
 # 前端静态资源 / 字体 / 二进制都在包里，目标机器不需要装 Python 依赖
 for pkg in ("streamlit", "altair", "plotly", "reportlab", "pdfplumber",
-            "pypdfium2", "bs4", "DrissionPage", "selenium"):
+            "pypdfium2", "bs4", "DrissionPage", "selenium", "pymysql"):
     try:
         d, b, h = collect_all(pkg)
     except Exception:
@@ -34,6 +34,8 @@ datas.append(("app.py", "."))
 # 自定义 Streamlit 组件（第⑤步分析工作台、画像广场联动投影台，原生 HTML/CSS/SVG）
 datas.append((os.path.join("components", "match_space"), os.path.join("components", "match_space")))
 datas.append((os.path.join("components", "profile_plaza"), os.path.join("components", "profile_plaza")))
+# 多页目录（画像广场独立页）
+datas.append(("pages", "pages"))
 
 LOCAL_MODULES = [
     "config", "db", "schema", "formulas", "embedding", "user_profile", "recommend",
@@ -45,7 +47,8 @@ LOCAL_MODULES = [
 hiddenimports += LOCAL_MODULES
 # Streamlit 1.66 起用 uvicorn/starlette 提供服务，这些是动态导入，显式声明
 hiddenimports += ["uvicorn", "starlette", "anyio", "h11", "websockets",
-                  "python_multipart", "watchdog", "tornado", "nest_asyncio"]
+                  "python_multipart", "watchdog", "tornado", "nest_asyncio",
+                  "pymysql", "pymysql.cursors"]
 
 a = Analysis(
     ["portable_launcher.py"],

@@ -1,12 +1,31 @@
 """统一字段数据库 —— 存储层。
 
-字段名全局唯一、字段值可核对。原型用 SQLite 等价实现 MySQL，
-生产环境可无缝切换 MySQL（表结构一致）。
+字段名全局唯一、字段值可核对。双后端：
+- 默认 SQLite（单机/测试）：`config.DB_PATH`（可用环境变量 JOBDELIVERY_DB 覆盖）；
+- 云端 MySQL（多机共用统一字段数据库）：环境变量 JOBDELIVERY_DB_URL=
+  `mysql://user:pass@host:3306/dbname`，未设置时回退 `config.CLOUD_DB_URL`。
+
+两种后端对业务代码暴露同一接口：`with db.get_conn() as conn:` +
+`conn.execute(sql, params)`（`?` 占位符由本层翻译）、行同时支持 `row["字段"]` 与 `row[0]`。
 """
+import os
+import re
 import sqlite3
 import json
 from pathlib import Path
 import config
+
+# 云端 MySQL 连接串（多机汇聚模式）。密码仅供本项目客户端使用，勿外泄。
+# 特殊值 "sqlite" = 强制本机 SQLite（测试/离线场景）。
+# 惰性解析：测试隔离会改环境变量，必须在使用时才读。
+def _resolve_url():
+    env_url = os.environ.get("JOBDELIVERY_DB_URL", "").strip()
+    if env_url.lower() in ("sqlite", "local"):
+        return ""
+    return env_url or getattr(config, "CLOUD_DB_URL", "").strip()
+
+
+DB_URL = _resolve_url()  # 导入时的快照（兼容直接引用）；运行时以 get_conn 解析为准
 
 
 class Connection(sqlite3.Connection):
@@ -18,7 +37,108 @@ class Connection(sqlite3.Connection):
             self.close()
 
 
+def _translate(sql):
+    """SQLite → MySQL 语句翻译（占位符与方言关键字）。"""
+    sql = sql.replace("INSERT OR IGNORE", "INSERT IGNORE")
+    sql = sql.replace("INSERT OR REPLACE", "REPLACE")
+    if "PRAGMA" in sql:
+        return "SELECT 1"
+    # key 是 MySQL 保留字：裸标识符加反引号（FOREIGN KEY 是大写，不受影响）
+    sql = re.sub(r"(?<![\w`])key(?![\w`])", "`key`", sql)
+    # 替换引号串之外的 ? 为 %s
+    parts = re.split(r"('[^']*')", sql)
+    for i in range(0, len(parts), 2):
+        parts[i] = parts[i].replace("?", "%s")
+    return "".join(parts)
+
+
+class Row(dict):
+    """同时支持 row[\"列名\"] 与 row[0]（下标按列顺序）的行类型。"""
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+
+class _MySQLCursor:
+    def __init__(self, cur):
+        self._cur = cur
+
+    def fetchone(self):
+        r = self._cur.fetchone()
+        return Row(r) if r is not None else None
+
+    def fetchall(self):
+        return [Row(r) for r in self._cur.fetchall()]
+
+    def __iter__(self):
+        return (Row(r) for r in self._cur)
+
+    @property
+    def lastrowid(self):
+        return self._cur.lastrowid
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+
+class MySQLShim:
+    """pymysql 连接封装，向业务代码暴露 sqlite3.Connection 风格接口。"""
+    def __init__(self):
+        import pymysql
+        from urllib.parse import urlparse, unquote
+        u = urlparse(_resolve_url())
+        self._conn = pymysql.connect(
+            host=u.hostname, port=u.port or 3306,
+            user=unquote(u.username or ""), password=unquote(u.password or ""),
+            database=(u.path or "/").lstrip("/") or None,
+            charset="utf8mb4", autocommit=False, connect_timeout=10,
+            read_timeout=60, write_timeout=60,
+            cursorclass=pymysql.cursors.DictCursor)
+
+    def execute(self, sql, params=None):
+        cur = self._conn.cursor()
+        cur.execute(_translate(sql), params or ())
+        return _MySQLCursor(cur)
+
+    def executemany(self, sql, seq):
+        cur = self._conn.cursor()
+        cur.executemany(_translate(sql), seq)
+        return _MySQLCursor(cur)
+
+    def cursor(self):
+        return self._conn.cursor()
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, *args):
+        try:
+            if exc_type is None:
+                self._conn.commit()
+            else:
+                self._conn.rollback()
+        finally:
+            self._conn.close()
+
+
+def is_mysql():
+    return bool(_resolve_url())
+
+
 def get_conn():
+    if _resolve_url():
+        return MySQLShim()
     Path(config.DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(config.DB_PATH, timeout=30, factory=Connection)
     conn.row_factory = sqlite3.Row
@@ -26,11 +146,8 @@ def get_conn():
     return conn
 
 
-def init_db():
-    """建表（统一字段数据库的全部子表）。"""
-    conn = get_conn()
-    c = conn.cursor()
-    c.executescript("""
+# ---- 建表 DDL ----
+_TABLES_SQLITE = """
     CREATE TABLE IF NOT EXISTS user_records (
         user_id INTEGER PRIMARY KEY AUTOINCREMENT,
         l0 TEXT NOT NULL,          -- L0 身份骨架 JSON
@@ -144,30 +261,114 @@ def init_db():
         value TEXT,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
-    """)
+    """
+
+_TABLES_MYSQL = _TABLES_SQLITE
+_TABLES_MYSQL = _TABLES_MYSQL.replace("INTEGER PRIMARY KEY AUTOINCREMENT",
+                                      "INT AUTO_INCREMENT PRIMARY KEY")
+_TABLES_MYSQL = _TABLES_MYSQL.replace("key TEXT PRIMARY KEY", "key VARCHAR(191) PRIMARY KEY")
+_TABLES_MYSQL = _TABLES_MYSQL.replace("key VARCHAR(191) PRIMARY KEY", "`key` VARCHAR(191) PRIMARY KEY")
+_TABLES_MYSQL = _TABLES_MYSQL.replace("msg_hash TEXT UNIQUE", "msg_hash VARCHAR(191) UNIQUE")
+_TABLES_MYSQL = _TABLES_MYSQL.replace("content_hash TEXT,", "content_hash VARCHAR(191),")
+# MySQL 的 TEXT/BLOB 不允许带默认值：时间戳列改 VARCHAR + 表达式默认值（保持字符串语义）
+_TABLES_MYSQL = _TABLES_MYSQL.replace(
+    "TEXT DEFAULT CURRENT_TIMESTAMP", "VARCHAR(19) DEFAULT (CURRENT_TIMESTAMP)")
+_TABLES_MYSQL = _TABLES_MYSQL.replace("TEXT DEFAULT '", "VARCHAR(64) DEFAULT '")
+
+
+def _safe_index(conn, sql):
+    try:
+        conn.execute(sql)
+    except Exception:
+        pass  # MySQL 无 CREATE INDEX IF NOT EXISTS：已存在即跳过
+
+
+def init_db():
+    """建表（统一字段数据库的全部子表）。按当前后端选方言。"""
+    conn = get_conn()
+    if _resolve_url():
+        _init_mysql(conn)
+    else:
+        _init_sqlite(conn)
+    conn.close()
+
+
+def _init_sqlite(conn):
+    conn.cursor().executescript(_TABLES_SQLITE)
     conn.execute("BEGIN IMMEDIATE")
-    # Additive migrations: keep databases and historical tasks from older copies.
-    for table, column, definition in (
-        ("jobs", "active", "INTEGER NOT NULL DEFAULT 1"),
-        ("delivery_tasks", "match_score", "REAL"),
-        ("history_samples", "task_id", "INTEGER"),
-    ):
-        columns = {r[1] for r in conn.execute("PRAGMA table_info(%s)" % table)}
-        if column not in columns:
-            conn.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, definition))
+    _migrate(conn, sqlite=True)
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS history_task_unique ON history_samples(task_id) WHERE task_id IS NOT NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_user ON delivery_tasks(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS responses_task ON hr_responses(task_id)")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS responses_dedup "
                  "ON hr_responses(task_id, kind, content_hash) WHERE content_hash IS NOT NULL")
+    conn.commit()
+
+
+def _init_mysql(conn):
+    for stmt in [s.strip() for s in _TABLES_MYSQL.split(";") if s.strip()]:
+        conn.execute(stmt)
+    _migrate(conn, sqlite=False)
+    # MySQL 不支持带 WHERE 的部分索引；唯一索引允许多个 NULL，语义等价
+    _safe_index(conn, "CREATE UNIQUE INDEX history_task_unique ON history_samples(task_id)")
+    _safe_index(conn, "CREATE INDEX tasks_user ON delivery_tasks(user_id)")
+    _safe_index(conn, "CREATE INDEX responses_task ON hr_responses(task_id)")
+    _safe_index(conn, "CREATE UNIQUE INDEX responses_dedup ON hr_responses(task_id, kind, content_hash)")
+    conn.commit()
+
+
+def _migrate(conn, sqlite):
+    """Additive migrations：保留旧库的历史任务。"""
+    if sqlite:
+        for table, column, definition in (
+            ("jobs", "active", "INTEGER NOT NULL DEFAULT 1"),
+            ("delivery_tasks", "match_score", "REAL"),
+            ("history_samples", "task_id", "INTEGER"),
+        ):
+            columns = {r[1] for r in conn.execute("PRAGMA table_info(%s)" % table)}
+            if column not in columns:
+                conn.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, definition))
+    else:
+        def _cols(table):
+            rows = conn.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+                                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s",
+                                (table,)).fetchall()
+            return {r[0] for r in rows}
+        for table, column, definition in (
+            ("jobs", "active", "INT NOT NULL DEFAULT 1"),
+            ("delivery_tasks", "match_score", "DOUBLE"),
+            ("history_samples", "task_id", "INT"),
+        ):
+            if column not in _cols(table):
+                conn.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, definition))
     conn.execute("INSERT OR IGNORE INTO user_jobs (user_id, job_id) SELECT DISTINCT d.user_id, d.job_id "
                  "FROM delivery_tasks d JOIN jobs j ON j.job_id=d.job_id "
                  "WHERE d.user_id NOT IN (SELECT user_id FROM user_job_scopes)")
     conn.execute("INSERT OR IGNORE INTO user_job_scopes SELECT DISTINCT user_id FROM delivery_tasks")
     conn.execute("UPDATE delivery_tasks SET match_score=(SELECT score FROM target_jobs t WHERE t.job_id=delivery_tasks.job_id) "
                  "WHERE match_score IS NULL")
-    conn.commit()
-    conn.close()
+
+
+def ensure_cloud_database():
+    """确保 JOBDELIVERY_DB_URL 指向的数据库存在（未指定库名时创建）。"""
+    if not _resolve_url():
+        return
+    from urllib.parse import urlparse
+    if urlparse(_resolve_url()).path.strip("/"):
+        return  # 已指定库名（需预先建好）
+    import pymysql
+    from urllib.parse import unquote
+    u = urlparse(_resolve_url())
+    conn = pymysql.connect(host=u.hostname, port=u.port or 3306,
+                           user=unquote(u.username or ""), password=unquote(u.password or ""),
+                           charset="utf8mb4", connect_timeout=10)
+    try:
+        with conn.cursor() as c:
+            c.execute("CREATE DATABASE IF NOT EXISTS jobdelivery "
+                      "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ---- 字段值核对辅助 ----

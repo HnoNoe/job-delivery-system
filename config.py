@@ -36,6 +36,13 @@ LOGIN_CHECK_TIMEOUT = float(os.environ.get("JOBDELIVERY_LOGIN_CHECK_TIMEOUT", "6
 # 数据库（原型用 SQLite，生产可替换 MySQL，表结构一致）
 DB_PATH = str(Path(os.environ.get("JOBDELIVERY_DB", str(DATA_DIR / "jobdelivery.db"))).expanduser().resolve())
 
+# 云端统一字段数据库（MySQL）。所有客户端机器留空 JOBDELIVERY_DB_URL 时默认连这里，
+# 数据（用户记录 + 去重岗位池）全量汇聚到服务器，绘图/匹配都读云端。
+# 可用环境变量 JOBDELIVERY_DB_URL=mysql://user:pass@host:3306/dbname 覆盖。
+CLOUD_DB_URL = os.environ.get(
+    "JOBDELIVERY_CLOUD_URL",
+    "mysql://jobdelivery:%23%3EygZ%294.F%23U%3Fm4g@149.104.21.235:3306/jobdelivery")
+
 # 嵌入
 EMBED_DIM = 128
 EMBED_MODEL = None
