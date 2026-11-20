@@ -26,6 +26,7 @@ import platforms
 import recommend
 import replies
 import responses
+import resume_ai
 import schema
 import session
 import theme
@@ -88,12 +89,13 @@ def render_step_1(states):
                 st.rerun()
 
         # 粘贴简历自动解析（减少手填）
-        with st.expander("📋 粘贴简历文本自动填充（可选）"):
+        with st.expander("📋 粘贴简历文本自动填充（规则 + AI 双引擎解析，可选）"):
             resume_text = st.text_area(
-                "把简历内容粘贴到这里，点解析自动提取姓名/手机/邮箱/学校/专业/技能",
+                "把简历内容粘贴到这里，点解析自动提取姓名/手机/邮箱/学校/专业/技能"
+                "（DeepSeek AI 补全 + 规则校验，任何一步失败自动回退）",
                 key="resume_text", height=100)
             if st.button("🔍 解析文本并填充", key="btn_parse"):
-                p = recommend.resume_parse(resume_text)
+                p = resume_ai.smart_parse(resume_text)
                 if p:
                     st.session_state["parsed"] = p
                     # 清除 L0/L2/L3/段数 widget 状态，让它们按解析结果重新创建
@@ -121,7 +123,7 @@ def render_step_1(states):
                     uploaded.seek(0)
                     with pdfplumber.open(uploaded) as pdf:
                         pdf_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-                    p = recommend.resume_parse(pdf_text)
+                    p = resume_ai.smart_parse(pdf_text)
                     if p:
                         st.session_state["parsed"] = p
                         for _k in list(st.session_state.keys()):

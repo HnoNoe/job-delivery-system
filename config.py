@@ -43,6 +43,19 @@ CLOUD_DB_URL = os.environ.get(
     "JOBDELIVERY_CLOUD_URL",
     "mysql://jobdelivery:%23%3EygZ%294.F%23U%3Fm4g@149.104.21.235:3306/jobdelivery")
 
+# 生成式 AI 辅助（简历解析补全等，OpenAI 兼容接口）。
+# 未配置或调用失败时相关功能自动回退离线规则解析，不影响主流程。
+# 密钥不入库：优先环境变量，其次本地 secrets_local.py（git 忽略，打包时随 exe 内置）。
+DEEPSEEK_API_KEY = os.environ.get("JOBDELIVERY_DEEPSEEK_KEY", "")
+DEEPSEEK_BASE_URL = os.environ.get("JOBDELIVERY_DEEPSEEK_BASE", "https://api.deepseek.com/v1")
+DEEPSEEK_MODEL = os.environ.get("JOBDELIVERY_DEEPSEEK_MODEL", "deepseek-chat")
+try:
+    from secrets_local import DEEPSEEK_API_KEY as _LOCAL_KEY  # noqa: F401
+    if _LOCAL_KEY:
+        DEEPSEEK_API_KEY = _LOCAL_KEY
+except ImportError:
+    pass
+
 # 嵌入
 EMBED_DIM = 128
 EMBED_MODEL = None
