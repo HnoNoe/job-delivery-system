@@ -10,6 +10,7 @@
 import pickle
 import io
 import json
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -19,6 +20,18 @@ import platforms
 
 SESSION_DIR = Path(config.RUNTIME_DIR) / "sessions"
 SESSION_DIR.mkdir(parents=True, exist_ok=True)
+
+# 新文档注入的反检测脚本：
+# - 隐藏 navigator.webdriver（基础反爬）
+# - 废掉 history.back/go：BOSS 直聘登录页检测到自动化后会调 history.back() 把页面弹走，
+#   表现为登录窗口"一闪就没"；拦掉这两个方法页面就老实留在登录页
+_STEALTH_JS = (
+    "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+    "try{"
+    "Object.defineProperty(History.prototype,'back',{value:function(){},configurable:true});"
+    "Object.defineProperty(History.prototype,'go',{value:function(){},configurable:true});"
+    "}catch(e){}"
+)
 
 
 def _new_driver(headless=True, window_size="1280,900", profile_dir=None):
@@ -52,7 +65,7 @@ def _new_driver(headless=True, window_size="1280,900", profile_dir=None):
     driver = Driver(options=opts)
     try:
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-            "source": "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+            "source": _STEALTH_JS
         })
     except Exception:
         pass
@@ -61,6 +74,39 @@ def _new_driver(headless=True, window_size="1280,900", profile_dir=None):
 
 def _profile_dir(platform_key):
     return SESSION_DIR / "profiles" / platform_key
+
+
+def _new_driver_min(headless=True):
+    """极简参数创建驱动：只用二进制路径与必要的无头/语言参数 + 反检测 CDP 脚本。
+
+    作为登录窗口的首选启动方式——实测带持久化用户目录或附加参数的启动，
+    个别 Chrome 版本（如 157）首次导航会静默丢弃（窗口一闪就没）；
+    裸驱动每次用临时 profile，不受单例锁影响，实测最稳。会话保存走 cookie 序列化，
+    不依赖用户目录持久化。
+    """
+    from selenium import webdriver
+    from browser_runtime import find_browser
+    binary, kind = find_browser()
+    if kind == "edge":
+        from selenium.webdriver.edge.options import Options
+        Driver = webdriver.Edge
+    else:
+        from selenium.webdriver.chrome.options import Options
+        Driver = webdriver.Chrome
+    opts = Options()
+    opts.binary_location = binary
+    if headless:
+        opts.add_argument("--headless=new")
+        opts.add_argument("--window-size=1280,900")
+    opts.add_argument("--lang=zh-CN")
+    driver = Driver(options=opts)
+    try:
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": _STEALTH_JS
+        })
+    except Exception:
+        pass
+    return driver
 
 
 def profile_dir(platform_key):
@@ -83,11 +129,45 @@ def launch_login(platform_key, headless=None):
     if headless is None:
         headless = p.get("headless_ok", False)  # 真实平台默认有头
 
-    driver = _new_driver(headless=headless, profile_dir=_profile_dir(platform_key))
-    try:
-        driver.get(p["login_url"])
-    except Exception:
-        pass  # 目标站暂时不可达也继续：后续等待/截图均有兜底
+    profile = _profile_dir(platform_key)
+    driver = None
+    navigated = False
+    for attempt in (1, 2, 3):
+        if attempt > 1 and driver is not None:
+            safe_quit(driver, profile_dir=profile)
+            driver = None
+        if attempt == 2:
+            # 第一次导航没生效：通常是同 profile 残留进程抢了单例，清干净重建
+            _kill_profile_browsers(profile, timeout=4.0)
+        try:
+            if attempt in (1, 3):
+                # 首选/兜底都用裸驱动（临时 profile，不受单例锁影响，实测最稳）
+                if driver is None or attempt == 3:
+                    driver = _new_driver_min(headless=headless)
+            else:
+                if driver is None:
+                    driver = _new_driver(headless=headless, profile_dir=profile)
+            driver.get(p["login_url"])
+        except Exception:
+            pass  # 目标站暂时不可达也继续：后续等待/截图均有兜底
+        deadline = time.time() + 10
+        u = ""
+        while time.time() < deadline:
+            try:
+                u = driver.current_url
+            except Exception:
+                u = ""
+            if u and not u.startswith(("chrome://", "about:", "edge://", "data:")):
+                break
+            time.sleep(0.5)
+        if u and not u.startswith(("chrome://", "about:", "edge://", "data:")):
+            navigated = True
+            break  # 导航成功（或站点跳转到了真实 URL）
+    if not navigated:
+        try:
+            print("[session] 警告：%s 登录页导航两次重试后仍未生效，仍返回当前窗口" % platform_key)
+        except Exception:
+            pass
 
     qr_sel = p.get("login_qr_selector", "img, canvas")
     # 等待二维码元素渲染
@@ -142,12 +222,52 @@ def is_alive(driver):
         return False
 
 
-def safe_quit(driver):
-    """安全关闭浏览器（忽略会话已失效/窗口已关闭的情况）。"""
+def _kill_profile_browsers(profile_dir, timeout=6.0):
+    """结束所有使用指定 user-data-dir 的 Chrome/Edge 残留进程。
+
+    Chrome 单例机制：同一 user-data-dir 已在运行时，新进程会把请求转交给旧进程后自己退出，
+    表现为登录窗口"一闪就没"、driver.get 静默不导航。启动前必须清干净。
+    只匹配命令行包含该 profile 路径的进程，绝不影响用户日常浏览器。
+    """
+    profile_dir = str(profile_dir)
+    if not profile_dir or not Path(profile_dir).exists():
+        return
+    ps = ("Get-CimInstance Win32_Process -Filter \"Name='chrome.exe' or Name='msedge.exe'\" "
+          "| Where-Object { $_.CommandLine -like '*%s*' } "
+          "| ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop } catch {} }"
+          % profile_dir.replace("'", "''"))
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps],
+            capture_output=True, text=True, timeout=30)
+        check = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe' or Name='msedge.exe'\" "
+             "| Where-Object { $_.CommandLine -like '*%s*' }).Count" % profile_dir.replace("'", "''")],
+            capture_output=True, text=True, timeout=30)
+        try:
+            if int((check.stdout or "0").strip() or 0) == 0:
+                return
+        except ValueError:
+            return
+        time.sleep(0.5)
+
+
+def safe_quit(driver, profile_dir=None):
+    """安全关闭浏览器（忽略会话已失效/窗口已关闭的情况）。
+
+    profile_dir 给了就顺手清掉同目录残留进程，避免下次启动撞 Chrome 单例。
+    """
     try:
         driver.quit()
     except Exception:
         pass
+    if profile_dir:
+        try:
+            _kill_profile_browsers(profile_dir, timeout=3.0)
+        except Exception:
+            pass
 
 
 def save_session(platform_key, driver):
@@ -219,11 +339,15 @@ def open_login(platform_key, headless=None):
     """打开登录页，driver 保留在 ACTIVE_DRIVERS，返回截图路径（无头时）。
 
     headless 传 None 时按平台 headless_ok 自动选择。
+    启动前先清掉同 profile 的残留浏览器进程（Chrome 单例会把新窗口转交给旧进程后退出，
+    导致窗口一闪就没）。
     """
+    profile = _profile_dir(platform_key)
     # 若该平台已有登录中的 driver，先安全关闭，避免用户目录被锁
     old = ACTIVE_DRIVERS.pop(platform_key, None)
     if old:
-        safe_quit(old)
+        safe_quit(old, profile_dir=profile)
+    _kill_profile_browsers(profile)
     driver, shot = launch_login(platform_key, headless=headless)
     ACTIVE_DRIVERS[platform_key] = driver
     return shot
@@ -242,14 +366,14 @@ def finish_login(platform_key):
             return True, "登录成功（保存 %d 个 cookie）" % n
         return False, "尚未检测到登录，请确认已扫码并完成登录"
     finally:
-        safe_quit(driver)
+        safe_quit(driver, profile_dir=_profile_dir(platform_key))
 
 
 def close_login(platform_key):
     """取消登录并关闭浏览器。"""
     driver = ACTIVE_DRIVERS.pop(platform_key, None)
     if driver:
-        safe_quit(driver)
+        safe_quit(driver, profile_dir=_profile_dir(platform_key))
 
 
 def is_logging_in(platform_key):
