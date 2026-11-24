@@ -24,4 +24,4 @@ def render(request: Request, name: str, context: dict, status_code: int = 200):
     if owner:
         ctx["user"] = owner
         ctx["is_admin"] = is_admin
-    return templates.TemplateResponse(name, ctx, status_code=status_code)
+    return templates.TemplateResponse(request, name, ctx, status_code=status_code)
