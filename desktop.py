@@ -419,7 +419,7 @@ def main():
                         variable=safe_var, command=toggle_safe).pack(side="left")
 
         # —— ① 平台登录态 ——
-        plat_box = ttk.LabelFrame(tab, text="① 平台登录（真实浏览器扫码/输密码，登录后点「完成登录」保存会话）")
+        plat_box = ttk.LabelFrame(tab, text="① 平台登录（点「登录」会在你自己的浏览器打开登录页；登录成功后回来点「完成登录」读取登录态）")
         plat_box.pack(fill="x", pady=4)
 
         def refresh_states():
@@ -449,27 +449,30 @@ def main():
 
             def make_login(k):
                 def do_login():
-                    status_var.set("已打开 %s 登录窗口，完成扫码/登录后回来点「完成登录」" % k)
+                    status_var.set("正在打开 %s 登录页…" % k)
                     def work():
-                        flow.start_login(k)
-                        return k
+                        return flow.start_login(k)
                     def done(ok, res):
                         if not ok:
                             messagebox.showerror("打开登录失败", str(res))
+                        else:
+                            status_var.set(str(res))
                     _bg(work, done)
                 return do_login
 
             def make_finish(k):
                 def do_finish():
+                    status_var.set("正在从本机浏览器读取 %s 登录态…" % k)
                     def work():
                         return flow.finish_login(k)
                     def done(ok, res):
-                        if not ok:
-                            messagebox.showerror("保存会话失败", str(res))
+                        ok2, msg = res
+                        if not ok2:
+                            messagebox.showerror("保存会话失败", str(msg))
+                            status_var.set(str(msg))
                             return
-                        ok2, state = res
-                        plat_state_vars[k].set("%s｜会话已保存" % state)
-                        status_var.set("%s 登录态：%s" % (k, state))
+                        plat_state_vars[k].set("%s｜会话已保存" % msg)
+                        status_var.set("%s 登录态：%s" % (k, msg))
                         refresh_states()
                     _bg(work, done)
                 return do_finish

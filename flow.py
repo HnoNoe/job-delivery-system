@@ -51,16 +51,40 @@ def login_states(online=False):
 
 
 def start_login(platform_key, headless=False):
-    """打开指定平台登录浏览器窗口（真实浏览器，用户扫码/输密码）。
+    """打开指定平台登录页（真实浏览器，用户扫码/输密码）。
 
-    用 open_login：driver 由 session.ACTIVE_DRIVERS 持有，
-    否则函数返回后 driver 被回收，浏览器窗口会直接关闭。
+    真实平台：用用户自己的浏览器打开（webbrowser），不弹受控窗口——
+    BOSS 直聘等平台会检测 Selenium 并弹走登录页，用户日常浏览器无此问题。
+    登录完成后由 finish_login 从本机浏览器 cookie 库读出登录态。
+    mock 平台保留受控浏览器流程（本地测试站，需要模拟扫码）。
     """
+    if platform_key != "mock":
+        import grab_login
+        return grab_login.open_in_user_browser(platform_key)
     session.open_login(platform_key, headless=headless)
+    return True, "已打开登录窗口，完成扫码后回来点「完成登录」"
 
 
 def finish_login(platform_key):
-    """用户完成登录后调用：保存会话并返回登录态。"""
+    """用户完成登录后调用：保存会话并返回登录态。
+
+    真实平台：从本机浏览器（Edge/Chrome）cookie 库抓取该平台 cookie 存盘。
+    mock：沿用受控浏览器检测。
+    """
+    if platform_key != "mock":
+        import grab_login
+        from urllib.parse import urlparse
+        host = urlparse((platforms.get(platform_key) or {}).get("login_url", "")).hostname or ""
+        domain = ".".join(host.split(".")[-2:]) if host else ""
+        cookies, err = grab_login.grab_cookies(domain)
+        if not cookies:
+            hint = ""
+            if not grab_login.is_admin():
+                hint = "（Edge/Chrome 新版加密需要管理员权限：请右键本程序→以管理员身份运行，再点一次「完成登录」）"
+            return False, "没能从本机浏览器读到 %s 的登录态：%s%s" % (platform_key, err, hint)
+        n = session.save_cookies(platform_key, cookies)
+        st = login_status.check_platform(platform_key, online=False)
+        return True, "已保存 %d 个 cookie，登录态：%s（若显示未登录，请确认在浏览器里登录成功）" % (n, st.get("state", "未知"))
     ok = session.finish_login(platform_key)
     st = login_status.check_platform(platform_key, online=False)
     return ok, st.get("state", "未知")

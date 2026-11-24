@@ -43,9 +43,10 @@ LOCAL_MODULES = [
     "pipeline", "loop", "platforms", "session", "crawler", "form_filler", "llm",
     "logging_setup", "theme", "viz", "login_status", "runtime_paths", "browser_runtime",
     "persona", "workbench", "profile_plaza", "resume_ai", "secrets_local",
-    "auth", "mydata", "flow", "cloud_sync", "unispace", "desktop",
+    "auth", "mydata", "flow", "cloud_sync", "unispace", "desktop", "grab_login",
 ]
 hiddenimports += LOCAL_MODULES
+hiddenimports += ["browser_cookie3", "browser_cookie3.__init__"]
 # Streamlit 1.66 起用 uvicorn/starlette 提供服务，这些是动态导入，显式声明
 hiddenimports += ["uvicorn", "starlette", "anyio", "h11", "websockets",
                   "python_multipart", "watchdog", "tornado", "nest_asyncio",
