@@ -44,18 +44,19 @@ def register(username, password):
         return False, "密码至少 6 位"
     salt = secrets.token_hex(16)
     pw_hash = hash_password(password, salt)
-    conn = db.get_conn()
-    try:
-        n = conn.execute(
-            "SELECT COUNT(*) FROM accounts WHERE username = ?", (username,)).fetchone()[0]
-        if n:
-            return False, "用户名已被注册"
-        conn.execute(
-            "INSERT INTO accounts (username, pw_hash, salt) VALUES (?, ?, ?)",
-            (username, pw_hash, salt))
-        conn.commit()
-    finally:
-        conn.close()
+    with db.use_cloud():
+        conn = db.get_conn()
+        try:
+            n = conn.execute(
+                "SELECT COUNT(*) FROM accounts WHERE username = ?", (username,)).fetchone()[0]
+            if n:
+                return False, "用户名已被注册"
+            conn.execute(
+                "INSERT INTO accounts (username, pw_hash, salt) VALUES (?, ?, ?)",
+                (username, pw_hash, salt))
+            conn.commit()
+        finally:
+            conn.close()
     _save_session(username, pw_hash)
     return True, "注册成功"
 
@@ -63,8 +64,9 @@ def register(username, password):
 def login(username, password):
     """登录。返回 (ok, message)。"""
     username = _norm_username(username)
-    row = db.get_conn().execute(
-        "SELECT pw_hash, salt FROM accounts WHERE username = ?", (username,)).fetchone()
+    with db.use_cloud():
+        row = db.get_conn().execute(
+            "SELECT pw_hash, salt FROM accounts WHERE username = ?", (username,)).fetchone()
     if row is None:
         return False, "账号不存在"
     pw_hash = row["pw_hash"] if isinstance(row, dict) else row[0]
@@ -93,8 +95,9 @@ def current_user():
     verifier = sess.get("verifier", "")
     if not username or not verifier:
         return None
-    row = db.get_conn().execute(
-        "SELECT pw_hash FROM accounts WHERE username = ?", (username,)).fetchone()
+    with db.use_cloud():
+        row = db.get_conn().execute(
+            "SELECT pw_hash FROM accounts WHERE username = ?", (username,)).fetchone()
     if row is None:
         return None
     pw_hash = row["pw_hash"] if isinstance(row, dict) else row[0]

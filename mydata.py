@@ -7,11 +7,22 @@
   私有画像与未发布快照只有本人可见。
 """
 import json
+import functools
 
 import db
 
+
+def _cloud(fn):
+    """mydata 全部走云端共享库；本地库不在此层访问。"""
+    @functools.wraps(fn)
+    def wrapper(*a, **kw):
+        with db.use_cloud():
+            return fn(*a, **kw)
+    return wrapper
+
 # ---------- 我的简历 ----------
 
+@_cloud
 def get_my_user_id(owner, create=True):
     """当前账号的简历主记录 user_id；没有且允许时创建空记录。"""
     row = db.get_conn().execute(
@@ -29,6 +40,7 @@ def get_my_user_id(owner, create=True):
     return cur.lastrowid
 
 
+@_cloud
 def load_resume(owner):
     """读取我的简历：L0 字段 + 经历明细。无记录返回 None。"""
     row = db.get_conn().execute(
@@ -48,6 +60,7 @@ def load_resume(owner):
     return {"user_id": uid, "l0": l0, "l1": l1, "l3": l3, "experiences": exps}
 
 
+@_cloud
 def save_resume(owner, parsed):
     """保存/覆盖我的简历。
 
@@ -84,6 +97,7 @@ def save_resume(owner, parsed):
 
 # ---------- 画像广场（公开=对比数据） ----------
 
+@_cloud
 def list_public_profiles(exclude_owner=None):
     """公开的画像快照（每人最新一条），用于对比视图。返回 [{owner, weights, user_vec, ts}]。"""
     sql = ("SELECT owner, weights, user_vec, ts FROM profile_pool p "
@@ -101,12 +115,14 @@ def list_public_profiles(exclude_owner=None):
     return out
 
 
+@_cloud
 def list_my_profiles(owner):
     return [r for r in db.get_conn().execute(
         "SELECT snap_id, visibility, ts, delivered_count, interview_count FROM profile_pool "
         "WHERE owner = ? ORDER BY snap_id DESC", (owner,))]
 
 
+@_cloud
 def set_profile_visibility(snap_id, owner, visibility):
     """仅本人可改自己的快照可见性。"""
     db.get_conn().execute(
@@ -115,6 +131,7 @@ def set_profile_visibility(snap_id, owner, visibility):
     db.get_conn().commit()
 
 
+@_cloud
 def publish_snapshot(owner, user_id):
     """把我当前的画像快照发布为公开对比数据（复制最新快照为 public）。"""
     row = db.get_conn().execute(
@@ -135,6 +152,7 @@ def publish_snapshot(owner, user_id):
 
 # ---------- 共享岗位池 ----------
 
+@_cloud
 def list_jobs(limit=500):
     """共享岗位池（全队去重汇聚），只读浏览。"""
     out = []
@@ -147,6 +165,7 @@ def list_jobs(limit=500):
     return out
 
 
+@_cloud
 def pool_stats():
     c = db.get_conn()
     jobs = c.execute("SELECT COUNT(*) FROM jobs WHERE active = 1").fetchone()[0]

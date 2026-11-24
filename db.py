@@ -13,17 +13,35 @@ import re
 import sqlite3
 import json
 import threading
+import contextlib
 from pathlib import Path
 import config
 
-# 云端 MySQL 连接串（多机汇聚模式）。密码仅供本项目客户端使用，勿外泄。
-# 特殊值 "sqlite" = 强制本机 SQLite（测试/离线场景）。
-# 惰性解析：测试隔离会改环境变量，必须在使用时才读。
+# 云端 MySQL 连接串（共享模式专用）。默认未设置 JOBDELIVERY_DB_URL 时一律走本地 SQLite，
+# 完整投递流程（简历/检索/匹配/投递/反馈）全部在本地库完成，零网络依赖；
+# 只有账号校验、岗位池共享同步、公开画像发布才经 use_cloud() 临时切到云端。
+# JOBDELIVERY_DB_URL=mysql://user:pass@host:3306/dbname 可显式整机连云（旧行为）。
 def _resolve_url():
     env_url = os.environ.get("JOBDELIVERY_DB_URL", "").strip()
     if env_url.lower() in ("sqlite", "local"):
         return ""
-    return env_url or getattr(config, "CLOUD_DB_URL", "").strip()
+    if env_url.lower().startswith("mysql"):
+        return env_url
+    return ""  # 默认：本地 SQLite
+
+
+@contextlib.contextmanager
+def use_cloud():
+    """上下文管理器：块内 get_conn 指向云端共享库，退出恢复原后端。"""
+    old = os.environ.get("JOBDELIVERY_DB_URL")
+    os.environ["JOBDELIVERY_DB_URL"] = config.CLOUD_DB_URL
+    try:
+        yield
+    finally:
+        if old is None:
+            os.environ.pop("JOBDELIVERY_DB_URL", None)
+        else:
+            os.environ["JOBDELIVERY_DB_URL"] = old
 
 
 DB_URL = _resolve_url()  # 导入时的快照（兼容直接引用）；运行时以 get_conn 解析为准
@@ -220,11 +238,12 @@ def get_conn():
         # 必须回滚——否则空闲连接长期占用元数据锁，会阻塞其他端的表结构变更，
         # 并在多机共用时有锁堆积风险。server_status 是本地状态位，零网络开销。
         shim = getattr(_tls, "_shim", None)
-        if shim is not None and not shim._conn.open:
-            shim = None  # 本地套接字检查；断线由 execute 内重连兜底
+        if shim is not None and (getattr(_tls, "_shim_url", None) != url or not shim._conn.open):
+            shim = None  # 目标库变了或套接字断了：重建（use_cloud 切换依赖此判定）
         if shim is None:
             shim = MySQLShim()
             _tls._shim = shim
+            _tls._shim_url = url
         try:
             if shim._conn.server_status & 0x0001:  # SERVER_STATUS_IN_TRANS
                 shim._conn.rollback()
@@ -436,6 +455,7 @@ def _migrate(conn, sqlite):
             ("delivery_tasks", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
             ("profile_pool", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
             ("profile_pool", "visibility", "VARCHAR(16) NOT NULL DEFAULT 'public'"),
+            ("jobs", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
         ):
             columns = {r[1] for r in conn.execute("PRAGMA table_info(%s)" % table)}
             if column not in columns:
@@ -454,6 +474,7 @@ def _migrate(conn, sqlite):
             ("delivery_tasks", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
             ("profile_pool", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
             ("profile_pool", "visibility", "VARCHAR(16) NOT NULL DEFAULT 'public'"),
+            ("jobs", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
         ):
             if column not in _cols(table):
                 conn.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, definition))
