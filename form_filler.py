@@ -14,7 +14,6 @@
 import re
 import time
 
-import embedding
 
 # 统一字段 -> 候选关键字（控件识别用）
 FIELD_KEYWORDS = {

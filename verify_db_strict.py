@@ -67,8 +67,8 @@ buf = io.StringIO()
 old = sys.stdout
 sys.stdout = buf
 try:
-    import matching
-    n_kept = matching.store_jobs([
+    import jobstore
+    n_kept = jobstore.store_jobs([
         {"岗位名称": "合法岗位A", "单位名称": "甲公司", "薪资": "10-15K"},
         {"岗位名称": "", "单位名称": "乙公司"},            # 关键字段缺损 → 拒收
         {"岗位名称": "合法岗位B", "单位名称": "丙公司", "经验": "在校/应届"},

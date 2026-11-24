@@ -299,3 +299,19 @@ python verify_formulas.py / verify_viz.py / verify_db_strict.py / verify_ui_comp
 - **测试**：`python server/tests/test_api.py`（TestClient 八段：注册/权限/五页/简历/空间接口/禁用/审计/登出）。
   注意：共享云库非空 → bootstrap 不触发，测试内直接 SQL 授管理员。
 - **本地起服**：`uvicorn server.app:app --port 8000`（需 JOBDELIVERY_DB_URL 指向云库才全功能）。
+
+---
+
+## 十六、精简重构（2026-11-24 15:45）
+
+用户指令：**系统只留自动检索岗位和投递，其他全部删除，自己重做其余部分**。
+
+已删除（git 历史可查）：画像/匹配/公式体系（formulas、embedding、user_profile、
+matching、pipeline、feedback、recommend、job_filters）、Web 端（server/、app.py、
+streamlit pages/）、桌面端（desktop.py、portable.spec）、反馈闭环、云端同步、
+全部旧测试与一次性脚本。云端 https://sicsciwoker.tech:8445 与 v0.2.x exe 已成历史。
+
+保留系统（检索+投递四步）：`main.py login/grab/search/maketasks/deliver/status`，
+新增 `jobstore.py`（入库校验去重）、`greeting.py`（招呼语，自包含）。
+全链路已在 mock 站实测通过；`verify_db_strict.py` 全绿（含 jobstore 集成，692 条存量零违规）。
+修了一处真 bug：main.py 两处 `conn.close()` 与 Connection.__exit__ 双重关闭冲突。

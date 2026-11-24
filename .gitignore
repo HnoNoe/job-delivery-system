@@ -25,3 +25,4 @@ zhaopin_crawler/*.log
 dataset_v2/
 数据集v2.7z
 secrets_local.py
+*.pptx

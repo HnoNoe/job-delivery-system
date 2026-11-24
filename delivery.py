@@ -20,7 +20,7 @@ from email.mime.application import MIMEApplication
 import config
 import db
 import platforms
-import recommend
+import greeting
 import schema
 from runtime_paths import safe_filename, resolve_resume
 
@@ -114,7 +114,7 @@ def prepare_batch(user_id, task_ids, user_data=None):
             # 个性化招呼语：读岗位字段，按技能/方向匹配生成
             job = _read_job(conn, t["job_id"])
             ud = {"l0": l0, "l2": l2, "l3": l3}
-            greet = recommend.personalized_greeting(ud, job, config.GREETING_TEMPLATE)
+            greet = greeting.personalized_greeting(ud, job, config.GREETING_TEMPLATE)
             report.append({"task_id": t["task_id"], "岗位": t["job_name"], "单位": t["unit_name"],
                            "岗位链接": t["job_link"] or "", "状态": "待投递",
                            "招呼语": greet})
@@ -194,7 +194,7 @@ def deliver_one(task_id):
     job_fields = json.loads(job["fields"]) if job else {}
     l2 = [json.loads(r["fields"]) for r in l2_rows]
     l3 = json.loads(l3_row["l3"]) if l3_row else {}
-    greet = recommend.personalized_greeting({"l0": l0, "l2": l2, "l3": l3}, job_fields,
+    greet = greeting.personalized_greeting({"l0": l0, "l2": l2, "l3": l3}, job_fields,
                                             config.GREETING_TEMPLATE)
     job_link = t["job_link"] or t["entry_addr"]
 

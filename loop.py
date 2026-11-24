@@ -1,14 +1,11 @@
-"""闭环编排器：把七步 + 反馈轮询 + 权重修正串成完整闭环。
+"""检索编排：在已登录平台检索岗位（requests 接口或 DrissionPage 旁听）。
 
-闭环：登录 → 检索 → 画像 → 匹配 → 建任务 → 生成简历 → 投递 → 轮询反馈 → 权重修正 → 再画像。
-每一步输出是下一步输入，投递反馈回流修正画像，形成数据闭环。
+只负责"查"：检索 → 归一化由 crawler 完成 → 入库由 jobstore 完成。
+画像/匹配/建任务/反馈等已随裁剪移除。
 """
-import db
-import session
 import crawler
 import platforms
-import pipeline
-import feedback
+import session
 from logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -37,26 +34,5 @@ def search_logged_in_platforms(platform_keys, keyword, city="", pages=1):
             logs.append((k, "检索到 %d 个岗位" % len(got)))
         else:
             reason = session.last_search_error(k)
-            logs.append((k, "检索到 0 个岗位：%s" % (reason or "登录态可能失效，请回到第②步重新扫码登录")))
+            logs.append((k, "检索到 0 个岗位：%s" % (reason or "登录态可能失效，请重新登录该平台")))
     return jobs, logs
-
-
-def run_closed_loop(user_data, platform_keys=None, keyword="", jobs=None, llm=None):
-    """执行完整闭环（不自动投递、不伪造反馈）。"""
-    log.info("闭环启动：platforms=%s keyword=%s", platform_keys, keyword)
-
-    # ① 检索
-    if jobs is None and platform_keys:
-        jobs, search_logs = search_logged_in_platforms(platform_keys, keyword)
-    else:
-        search_logs = []
-
-    # ②-⑥ 画像→匹配→建任务→生成→准备投递材料
-    result = pipeline.run_full_pipeline(user_data, llm=llm, jobs=jobs)
-    if not result["ok"]:
-        log.warning("闭环中止：核检未通过 %s", result["errors"])
-        return result
-
-    result["search_logs"] = search_logs
-    log.info("闭环完成：准备投递材料 %d 个任务", result["task_count"])
-    return result
