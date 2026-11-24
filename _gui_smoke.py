@@ -1,15 +1,14 @@
-"""桌面端主界面构建冒烟：假装已登录，强制 show_main 构建全部四个页签。
-
-任何页签构建异常都会被 tkinter 回调异常钩子捕获，结束后统一断言。
-"""
+"""复现并验证修复：全新隔离环境（零表）下启动桌面端，main() 必须自建本地表。"""
 import os
 import sys
 import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 os.environ["JOBDELIVERY_GUI_TEST"] = "1"
 
-import tkinter as tk
+from test_support import isolate_test_environment
+isolate_test_environment()
 
+import tkinter as tk
 _failed = []
 tk.Tk._orig_rce = tk.Tk.report_callback_exception
 def _rce(self, exc, val, tb):
@@ -17,8 +16,7 @@ def _rce(self, exc, val, tb):
     tk.Tk._orig_rce(self, exc, val, tb)
 tk.Tk.report_callback_exception = _rce
 
-import auth
-import mydata
+import auth, mydata
 auth.current_user = lambda: "smoke"
 auth.logout = lambda: None
 mydata.pool_stats = lambda: {"accounts": 0, "jobs": 0}
@@ -31,4 +29,12 @@ if _failed:
     for f in _failed:
         print("  -", f)
     sys.exit(1)
-print("=== 桌面端主界面（四页签）构建冒烟通过 ===")
+
+import db
+conn = db.get_conn()
+tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+conn.close()
+need = {"user_records", "experience_items", "jobs", "delivery_tasks"}
+missing = need - tables
+assert not missing, "本地库缺表：%s（desktop.main 未建表）" % missing
+print("=== 桌面端全新环境建表冒烟通过 ===")

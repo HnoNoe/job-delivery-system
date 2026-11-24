@@ -118,6 +118,8 @@ def main():
 
     import auth
     import mydata
+    import db
+    db.init_db()  # 本地 SQLite 建表（便携版首次运行没有 app.py 兜底，必须自建）
 
     root = tk.Tk()
     _ROOT = root
