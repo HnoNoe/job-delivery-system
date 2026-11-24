@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}内容治理 · 智投链{% endblock %}
+{% block content %}
+<h1>内容治理</h1>
+<div class="card">
+  <h2>公开画像（{{ profiles | length }}）</h2>
+  {% if profiles %}
+  <table>
+    <tr><th>标签</th><th>账号</th><th>累计投递</th><th>进面试</th><th>操作</th></tr>
+    {% for p in profiles %}
+    <tr>
+      <td>{{ p.label }}</td><td>{{ p.owner }}</td>
+      <td>{{ p.delivered }}</td><td>{{ p.interview }}</td>
+      <td>
+        <form method="post" action="/admin/content/retract_profile" style="display:inline"
+              onsubmit="return confirm('下架 {{ p.owner }} 的公开画像？')">
+          <input type="hidden" name="owner" value="{{ p.owner }}">
+          <button class="btn small danger" type="submit">下架</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">云端用户池为空</p>{% endif %}
+</div>
+<div class="card" style="padding:0;overflow:auto">
+  <h2 style="padding:18px 20px 0">共享岗位池（前 {{ jobs | length }} 条）</h2>
+  <table style="margin-top:8px">
+    <tr><th>岗位</th><th>单位</th><th>城市</th><th>薪资</th><th>操作</th></tr>
+    {% for j in jobs %}
+    <tr>
+      <td>{{ j.get('岗位名称','') }}</td><td>{{ j.get('单位名称','') }}</td>
+      <td>{{ j.get('城市','') }}</td><td>{{ j.get('薪资','') }}</td>
+      <td>
+        <form method="post" action="/admin/content/deactivate_job" style="display:inline">
+          <input type="hidden" name="job_id" value="{{ j.get('job_id', '') }}">
+          <button class="btn small warn" type="submit">下架</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

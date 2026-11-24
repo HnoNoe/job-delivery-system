@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}审计日志 · 智投链{% endblock %}
+{% block content %}
+<h1>审计日志</h1>
+<div class="card" style="padding:0;overflow:auto">
+<table>
+  <tr><th>时间</th><th>操作者</th><th>动作</th><th>对象</th><th>详情</th></tr>
+  {% for r in rows %}
+  <tr><td>{{ r.ts }}</td><td>{{ r.actor }}</td><td>{{ r.action }}</td>
+      <td>{{ r.target }}</td><td>{{ r.detail }}</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

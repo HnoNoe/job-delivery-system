@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}仪表盘 · 智投链{% endblock %}
+{% block content %}
+<h1>你好，{{ owner }}</h1>
+<div class="kpis">
+  <div class="kpi"><div class="n">{{ stats.accounts }}</div><div class="t">注册账号</div></div>
+  <div class="kpi"><div class="n">{{ stats.jobs }}</div><div class="t">共享岗位</div></div>
+  <div class="kpi"><div class="n">{{ snap_count }}</div><div class="t">我的画像快照</div></div>
+  <div class="kpi"><div class="n">{{ '是' if published else '否' }}</div><div class="t">画像已发布</div></div>
+</div>
+
+<div class="card">
+  <h2>我的状态</h2>
+  <p>简历：<span class="tag {{ 'ok' if has_resume else 'bad' }}">{{ '已保存到云端' if has_resume else '还没有' }}</span>
+    　公开画像：<span class="tag {{ 'ok' if published else 'bad' }}">{{ '已发布' if published else '未发布' }}</span></p>
+  <p class="muted">建议路径：① <a href="/app/resume">填写/导入简历</a> → ② 桌面端跑投递闭环生成画像快照 →
+     ③ <a href="/app/profiles">发布画像到云端</a> → ④ <a href="/app/plaza">在统一空间看人与岗位的分布</a></p>
+</div>
+
+<div class="card">
+  <h2>分工提醒</h2>
+  <p class="muted">投递、抓取、反馈回写 ＝ 桌面端（本机）；账号、简历共享副本、岗位池、画像广场 ＝ 这里（云端）。</p>
+</div>
+{% endblock %}

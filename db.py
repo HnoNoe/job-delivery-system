@@ -64,6 +64,8 @@ def _translate(sql):
         return "SELECT 1"
     # key 是 MySQL 保留字：裸标识符加反引号（FOREIGN KEY 是大写，不受影响）
     sql = re.sub(r"(?<![\w`])key(?![\w`])", "`key`", sql)
+    # 字面 % 转义为 %%（pymysql 走 printf 风格格式化）；事先保护故意写给 pymysql 的 %s 占位符
+    sql = sql.replace("%s", "\x00").replace("%", "%%").replace("\x00", "%s")
     # 替换引号串之外的 ? 为 %s
     parts = re.split(r"('[^']*')", sql)
     for i in range(0, len(parts), 2):

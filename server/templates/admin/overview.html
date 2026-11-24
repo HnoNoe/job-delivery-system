@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}管理端 · 智投链{% endblock %}
+{% block content %}
+<h1>管理端 · 总览</h1>
+<div class="kpis">
+  <div class="kpi"><div class="n">{{ accounts }}</div><div class="t">注册账号</div></div>
+  <div class="kpi"><div class="n">{{ stats.jobs }}</div><div class="t">共享岗位</div></div>
+  <div class="kpi"><div class="n">{{ pub }}</div><div class="t">公开画像</div></div>
+  <div class="kpi"><div class="n">{{ audits }}</div><div class="t">审计记录</div></div>
+</div>
+<div class="card">
+  <h2>治理动作</h2>
+  <p>
+    <a class="btn secondary" href="/admin/accounts">账号管理</a>
+    <a class="btn secondary" href="/admin/content" style="margin-left:8px">内容治理</a>
+    <a class="btn secondary" href="/admin/audit" style="margin-left:8px">审计日志</a>
+    <a class="btn secondary" href="/admin/system" style="margin-left:8px">系统状态</a>
+  </p>
+</div>
+<div class="card">
+  <h2>最近审计</h2>
+  {% if recent %}
+  <table>
+    <tr><th>操作者</th><th>动作</th><th>对象</th><th>时间</th></tr>
+    {% for r in recent %}
+    <tr><td>{{ r.actor }}</td><td>{{ r.action }}</td><td>{{ r.target }}</td><td>{{ r.ts }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">暂无记录</p>{% endif %}
+</div>
+{% endblock %}

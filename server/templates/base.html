@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}智投链{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js" charset="utf-8"></script>
+</head>
+<body>
+{% if user %}
+<nav class="topnav">
+  <span class="brand">智投链</span>
+  <a href="/app">仪表盘</a>
+  <a href="/app/resume">我的简历</a>
+  <a href="/app/jobs">岗位池</a>
+  <a href="/app/plaza">统一空间</a>
+  <a href="/app/profiles">我的画像</a>
+  {% if is_admin %}<a href="/admin" class="admin">管理端</a>{% endif %}
+  <span class="spacer"></span>
+  <span class="who">{{ user }}</span>
+  <a href="/logout">退出</a>
+</nav>
+{% endif %}
+<main class="container">
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

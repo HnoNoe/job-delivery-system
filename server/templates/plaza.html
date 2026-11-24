@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}统一空间 · 智投链{% endblock %}
+{% block content %}
+<h1>用户池 × 岗位池 · 统一匹配空间</h1>
+<p class="muted">联合 PCA 对齐：用户向量与岗位向量同基投影，距离即匹配关系；岗位自动聚类，一簇一个方向。
+当前云池：{{ n_users }} 个公开画像 × {{ n_jobs }} 个岗位。</p>
+<div class="card">
+  <div id="space-plot"><p class="muted">加载中……</p></div>
+</div>
+<div class="card">
+  <h2>用户归属总表</h2>
+  <div id="user-table"><p class="muted">加载中……</p></div>
+</div>
+<script>
+fetch('/api/space').then(r => r.json()).then(data => {
+  if (data.empty) {
+    document.getElementById('space-plot').innerHTML = '<p class="muted">' + data.reason + '</p>';
+    document.getElementById('user-table').innerHTML = '<p class="muted">—</p>';
+    return;
+  }
+  Plotly.newPlot('space-plot', data.fig.data, data.fig.layout, {responsive: true});
+  const rows = data.users.map(u =>
+    '<tr><td>' + u.label + '</td><td>' + (data.clusters[u.cluster] || '—') + '</td>' +
+    '<td>' + u.fit.toFixed(2) + '</td><td>' + u.delivered + '</td><td>' + u.interview + '</td></tr>');
+  document.getElementById('user-table').innerHTML =
+    '<table><tr><th>用户</th><th>最契合岗位簇</th><th>簇匹配度</th><th>累计投递</th><th>进面试</th></tr>' +
+    rows.join('') + '</table>';
+}).catch(e => {
+  document.getElementById('space-plot').innerHTML = '<p class="muted">加载失败：' + e + '</p>';
+});
+</script>
+{% endblock %}

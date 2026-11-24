@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}我的简历 · 智投链{% endblock %}
+{% block content %}
+<h1>我的简历</h1>
+{% if request.query_params.get('saved') %}<div class="flash ok">已保存{{ '（AI 解析到 %s 个字段）' % request.query_params.get('parsed') if request.query_params.get('parsed') else '' }}</div>{% endif %}
+{% if request.query_params.get('err') %}<div class="flash err">只支持 PDF 简历</div>{% endif %}
+
+<div class="card">
+  <h2>导入 PDF（规则 + DeepSeek AI 双引擎解析）</h2>
+  <form method="post" action="/app/resume/upload" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".pdf" required>
+    <button class="btn" type="submit" style="margin-left:8px">上传并解析</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>手动编辑</h2>
+  <form method="post" action="/app/resume">
+    <div class="grid2">
+      {% for f in fields %}
+      <div>
+        <label>{{ f }}</label>
+        <input type="text" name="{{ f }}" value="{{ data.get(f, '') }}">
+      </div>
+      {% endfor %}
+      <div>
+        <label>意向岗位</label>
+        <input type="text" name="意向岗位" value="{{ data.get('意向岗位', '') }}">
+      </div>
+    </div>
+    <label>经历明细（JSON 数组）</label>
+    <textarea name="经历" rows="10">{{ data.get('经历', []) | tojson }}</textarea>
+    <div style="margin-top:14px"><button class="btn" type="submit">保存到云端</button></div>
+  </form>
+</div>
+{% endblock %}

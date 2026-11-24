@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}岗位池 · 智投链{% endblock %}
+{% block content %}
+<h1>共享岗位池</h1>
+<div class="card">
+  <form method="get" action="/app/jobs" style="display:flex;gap:8px;align-items:center">
+    <input type="text" name="q" value="{{ q }}" placeholder="搜索岗位名 / 单位名" style="max-width:320px">
+    <button class="btn" type="submit">搜索</button>
+    <span class="muted">共 {{ total }} 条（全队去重汇聚）</span>
+  </form>
+</div>
+<div class="card" style="padding:0;overflow:auto">
+<table>
+  <tr><th>岗位名称</th><th>单位</th><th>城市</th><th>薪资</th><th>经验</th><th>学历</th></tr>
+  {% for j in jobs %}
+  <tr>
+    <td>{{ j.get('岗位名称','') }}</td><td>{{ j.get('单位名称','') }}</td>
+    <td>{{ j.get('城市','') }}</td><td>{{ j.get('薪资','') }}</td>
+    <td>{{ j.get('经验','') }}</td><td>{{ j.get('学历','') }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+<p class="muted">把岗位拉回本地：桌面端「共享岗位池」页点「从云端拉取新岗位」，再走本地匹配投递流程。</p>
+{% endblock %}

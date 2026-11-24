@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}系统状态 · 智投链{% endblock %}
+{% block content %}
+<h1>系统状态</h1>
+<div class="kpis">
+  <div class="kpi"><div class="n">{{ py }}</div><div class="t">Python</div></div>
+  <div class="kpi"><div class="n" style="font-size:16px">{{ mysql }}</div><div class="t">MySQL</div></div>
+  <div class="kpi"><div class="n">{{ sessions }}</div><div class="t">活跃会话</div></div>
+  <div class="kpi"><div class="n">{{ (disk.free / 1073741824) | round(0, 'floor') | int }}G</div><div class="t">磁盘剩余</div></div>
+</div>
+<div class="card">
+  <h2>信息</h2>
+  <p class="muted">平台：{{ platform }}　仓库：{{ repo }}　服务：jobweb（systemd，8000 端口）</p>
+  <p class="muted">重启：systemctl restart jobweb　日志：journalctl -u jobweb -f</p>
+</div>
+{% endblock %}

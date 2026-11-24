@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ "注册" if mode == "register" else "登录" }} · 智投链{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+  <div class="card">
+    <h1>智投链 · 求职批量投递系统</h1>
+    {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+    {% if mode == "register" %}
+    <form method="post" action="/register">
+      <label>用户名（2~32 位，中文/字母/数字/下划线/连字符）</label>
+      <input type="text" name="username" required>
+      <label>密码（至少 6 位）</label>
+      <input type="password" name="password" required>
+      <label>确认密码</label>
+      <input type="password" name="password2" required>
+      <div style="margin-top:16px"><button class="btn" type="submit">注 册</button></div>
+    </form>
+    <div class="auth-switch">已有账号？<a href="/login">直接登录</a></div>
+    {% else %}
+    <form method="post" action="/login">
+      <label>用户名</label>
+      <input type="text" name="username" required autofocus>
+      <label>密码</label>
+      <input type="password" name="password" required>
+      <div style="margin-top:16px"><button class="btn" type="submit">登 录</button></div>
+    </form>
+    <div class="auth-switch">没有账号？<a href="/register">注册新账号</a>（全队共用这一套账号）</div>
+    {% endif %}
+  </div>
+  <p class="muted" style="text-align:center">投递全流程在桌面端执行；这里管理简历、岗位池与画像空间。</p>
+</div>
+{% endblock %}

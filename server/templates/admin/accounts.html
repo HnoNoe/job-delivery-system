@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}账号管理 · 智投链{% endblock %}
+{% block content %}
+<h1>账号管理</h1>
+{% if msg %}<div class="flash ok">{{ msg }}</div>{% endif %}
+<div class="card">
+  <form method="get" action="/admin/accounts" style="display:flex;gap:8px">
+    <input type="text" name="q" value="{{ q }}" placeholder="搜索用户名" style="max-width:280px">
+    <button class="btn" type="submit">搜索</button>
+  </form>
+</div>
+<div class="card" style="padding:0;overflow:auto">
+<table>
+  <tr><th>用户名</th><th>角色</th><th>状态</th><th>注册时间</th><th>操作</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td>{{ r.username }}</td>
+    <td>{% if r.is_admin %}<span class="tag ok">管理员</span>{% else %}<span class="tag">用户</span>{% endif %}</td>
+    <td>{% if r.status == 'active' %}<span class="tag ok">正常</span>{% else %}<span class="tag bad">已禁用</span>{% endif %}</td>
+    <td>{{ r.created_at }}</td>
+    <td>
+      <form method="post" action="/admin/accounts/toggle_status" style="display:inline">
+        <input type="hidden" name="username" value="{{ r.username }}">
+        <button class="btn small {{ 'warn' if r.status == 'active' else '' }}" type="submit">
+          {{ '禁用' if r.status == 'active' else '启用' }}</button>
+      </form>
+      <form method="post" action="/admin/accounts/toggle_admin" style="display:inline">
+        <input type="hidden" name="username" value="{{ r.username }}">
+        <button class="btn small secondary" type="submit">{{ '撤管理员' if r.is_admin else '设管理员' }}</button>
+      </form>
+      <form method="post" action="/admin/accounts/reset_password" style="display:inline"
+            onsubmit="return confirm('重置 {{ r.username }} 的密码？')">
+        <input type="hidden" name="username" value="{{ r.username }}">
+        <button class="btn small danger" type="submit">重置密码</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}
