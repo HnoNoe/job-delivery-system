@@ -84,7 +84,10 @@ def launch_login(platform_key, headless=None):
         headless = p.get("headless_ok", False)  # 真实平台默认有头
 
     driver = _new_driver(headless=headless, profile_dir=_profile_dir(platform_key))
-    driver.get(p["login_url"])
+    try:
+        driver.get(p["login_url"])
+    except Exception:
+        pass  # 目标站暂时不可达也继续：后续等待/截图均有兜底
 
     qr_sel = p.get("login_qr_selector", "img, canvas")
     # 等待二维码元素渲染

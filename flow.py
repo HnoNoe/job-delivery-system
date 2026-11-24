@@ -51,8 +51,12 @@ def login_states(online=False):
 
 
 def start_login(platform_key, headless=False):
-    """打开指定平台登录浏览器窗口（真实浏览器，用户扫码/输密码）。"""
-    session.launch_login(platform_key, headless=headless)
+    """打开指定平台登录浏览器窗口（真实浏览器，用户扫码/输密码）。
+
+    用 open_login：driver 由 session.ACTIVE_DRIVERS 持有，
+    否则函数返回后 driver 被回收，浏览器窗口会直接关闭。
+    """
+    session.open_login(platform_key, headless=headless)
 
 
 def finish_login(platform_key):
