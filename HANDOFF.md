@@ -278,3 +278,24 @@ python verify_formulas.py / verify_viz.py / verify_db_strict.py / verify_ui_comp
   「🌐 统一空间模式」开关（云端数据，任何端看到同一幅图）。
 - 回归：`verify_unispace.py`（合成 6 用户 24 岗位：对齐/聚类 K=2/归属 6/6/发布往返/幂等/撤回）。
 - 技术栈收束：numpy + scikit-learn（KMeans/轮廓系数）+ plotly，全部本地计算、云端只存取数据。
+
+## 十五、2026-11-24 Web 客户端 + 管理端上线（FastAPI 服务端渲染）
+
+设计文档：`docs/设计-Web客户端与管理端.md`。分工：**桌面端管"做"（投递全流程），Web 管"看"，管理端管"治"**。
+
+- **访问**：https://sicsciwoker.tech:8445 （nginx 8445 ssl → 127.0.0.1:8000 uvicorn）
+- **服务端代码**：`server/`（FastAPI + Jinja2，不做前后端分离）。入口 `server/app.py`；
+  路由 `server/routers/{auth,client,space,admin}.py`；模板 `server/templates/`（10 个）。
+- **部署**：`/opt/jobweb`（git clone），`.venv` 运行，`systemd jobweb.service` 常驻；
+  nginx 配置 `/etc/nginx/conf.d/jobweb.conf`（复用 sicsciwoker.tech 证书；zhitouform 8444 不动）。
+- **账号**：注册即用；**首个注册账号自动成为管理员**（bootstrap，空库时）；后续管理员由管理员提升。
+  现有云库已有账号（如 康利文），新注册者是普通用户。
+- **功能**：客户端五页（仪表盘/我的简历/岗位池/统一空间/画像发布撤回）；
+  管理端五页（总览/账号禁用与授权/内容下架/审计/系统）。安全：PBKDF2 复用 auth.py、
+  会话表 web_sessions、登录限流、审计 audit_log、POST 同源校验（Referer/Origin）。
+- **统一空间 API**：`GET /api/space` 返回 plotly JSON，网页广场前端 Plotly 渲染（桌面端空间图同款算法 unispace）。
+- **修复的底层 bug**：db.py `_translate` 此前不转义字面 `%`，凡 SQL 含 LIKE '%x%' 在云端必炸
+  （pymysql printf 风格格式化）；现已统一 `%`→`%%`（保护故意的 %s 占位符）。
+- **测试**：`python server/tests/test_api.py`（TestClient 八段：注册/权限/五页/简历/空间接口/禁用/审计/登出）。
+  注意：共享云库非空 → bootstrap 不触发，测试内直接 SQL 授管理员。
+- **本地起服**：`uvicorn server.app:app --port 8000`（需 JOBDELIVERY_DB_URL 指向云库才全功能）。
