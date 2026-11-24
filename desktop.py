@@ -206,41 +206,44 @@ def main():
 
     # ---------- 主界面 ----------
     main_frame = ttk.Frame(root)
+    main_built = [False]
 
     def show_main():
         auth_frame.pack_forget()
         main_frame.pack(fill="both", expand=True)
-        top = ttk.Frame(main_frame, padding=(10, 6))
-        top.pack(fill="x")
-        ttk.Label(top, textvariable=user_var, font=("", 11, "bold")).pack(side="left")
-        ttk.Label(top, text="   登录中").pack(side="left")
+        if main_built[0]:  # 登录/自动登录/重复回调都只构建一次，避免界面堆叠
+            status_var.set("就绪")
+            return
+        main_built[0] = True
+        try:
+            top = ttk.Frame(main_frame, padding=(10, 6))
+            top.pack(fill="x")
+            ttk.Label(top, textvariable=user_var, font=("", 11, "bold")).pack(side="left")
+            ttk.Label(top, text="   登录中").pack(side="left")
 
-        def do_logout():
-            auth.logout()
-            main_frame.pack_forget()
-            auth_frame.pack(expand=True)
-            status_var.set("已退出登录")
-        ttk.Button(top, text="退出登录", command=do_logout).pack(side="right")
+            def do_logout():
+                auth.logout()
+                main_frame.pack_forget()
+                auth_frame.pack(expand=True)
+                status_var.set("已退出登录")
+            ttk.Button(top, text="退出登录", command=do_logout).pack(side="right")
 
-        nb = ttk.Notebook(main_frame)
-        nb.pack(fill="both", expand=True, padx=8, pady=4)
-        build_resume_tab(nb)
-        build_plaza_tab(nb)
-        build_jobs_tab(nb)
-        status_var.set("就绪")
+            nb = ttk.Notebook(main_frame)
+            nb.pack(fill="both", expand=True, padx=8, pady=4)
+            build_resume_tab(nb)
+            build_plaza_tab(nb)
+            build_jobs_tab(nb)
+            status_var.set("就绪")
+        except Exception as exc:
+            status_var.set("界面加载失败：%s" % exc)
+            messagebox.showerror("界面加载失败", str(exc))
 
     # ----- Tab1 简历信息 -----
     def build_resume_tab(nb):
         tab = ttk.Frame(nb, padding=10)
         nb.add(tab, text=" 我的简历 ")
-
-        bar = ttk.Frame(tab)
+        bar = ttk.Frame(tab)          # 容器先占位在顶部
         bar.pack(fill="x", pady=(0, 8))
-        ttk.Button(bar, text="📄 导入 PDF 简历（AI 解析）",
-                   command=import_pdf).pack(side="left", padx=2)
-        ttk.Button(bar, text="☁ 从云端载入", command=load_cloud).pack(side="left", padx=2)
-        ttk.Button(bar, text="💾 保存到云端", command=save_cloud).pack(side="left", padx=2)
-        ttk.Button(bar, text="清空", command=clear_form).pack(side="left", padx=2)
 
         canvas = tk.Canvas(tab, highlightthickness=0)
         scroll = ttk.Scrollbar(tab, orient="vertical", command=canvas.yview)
@@ -372,6 +375,14 @@ def main():
             fill({})
             status_var.set("已清空表单（不影响云端数据）")
 
+        # 工具栏按钮放在所有回调定义之后（tkinter command 构建时就要解析到函数对象）
+        ttk.Button(bar, text="📄 导入 PDF 简历（AI 解析）",
+                   command=import_pdf).pack(side="left", padx=2)
+        ttk.Button(bar, text="☁ 从云端载入", command=load_cloud).pack(side="left", padx=2)
+        ttk.Button(bar, text="💾 保存到云端", command=save_cloud).pack(side="left", padx=2)
+        ttk.Button(bar, text="清空", command=clear_form).pack(side="left", padx=2)
+        tab.lift()
+
     # ----- Tab2 画像对比 -----
     def build_plaza_tab(nb):
         tab = ttk.Frame(nb, padding=10)
@@ -474,9 +485,8 @@ def main():
 
     auth_frame.pack(expand=True)
     if os.environ.get("JOBDELIVERY_GUI_TEST"):
-        root.after(1200, root.destroy)
-    else:
-        try_auto_login()
+        root.after(8000, root.destroy)  # 测试模式：走完整流程后自动关闭
+    try_auto_login()
     root.mainloop()
 
 
