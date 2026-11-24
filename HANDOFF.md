@@ -194,3 +194,69 @@ python main.py search <平台> <关键词>
    SQLite 事务内新连接看不到未提交数据；单写者锁下不能嵌套持有连接。
 5. 多用户现状说明：**数据层天然多用户**（user_records 累积 + 每用户独立 weights/快照/任务），
    但应用层无账户体系（无注册登录、无切换），真实投递强绑本机浏览器登录态，无法直接上云。
+
+## 十三、2026-11-24 本地优先架构重构（当前权威架构，覆盖此前所有部署描述）
+
+### 1. 本地 / 云端分工（最重要的一条）
+
+| 职责 | 落点 | 说明 |
+|---|---|---|
+| 简历主数据、检索、匹配、建任务、生成材料、投递、反馈闭环 | **本地 SQLite**（`config.DB_PATH`） | 完整投递流程的唯一工作库，**零网络依赖**；默认后端，无任何环境变量即是它 |
+| 账号注册/登录/会话 | 云端 MySQL `accounts` | 全队统一身份，注册一次全端通用 |
+| 共享岗位池 | 云端 MySQL `jobs`（含 `owner` 列） | 各机器抓取岗位去重后汇聚；`cloud_sync.py` 双向同步 |
+| 画像广场对比数据 | 云端 MySQL `profile_pool` | 公开画像快照，他人=对比数据 |
+| 云端连接方式 | **显式 opt-in** | 只有 `JOBDELIVERY_DB_URL` 以 `mysql://` 开头才连云；`sqlite`/`local`/未设置一律本地 |
+
+`db.use_cloud()` 是云端唯一合法入口（线程级 shim 按 URL 键控，嵌套/并发安全）。
+**只有 `auth.py`、`mydata.py`、`cloud_sync.py` 三个模块允许连云**，业务引擎（pipeline/loop/delivery/feedback）一律本地。
+
+### 2. 云端 18 表角色收敛（2026-11-24 盘点：仅 accounts 1 行，其余全空）
+
+- **在用的 3 张**：`accounts`（身份）、`jobs`（共享岗位池，`owner` 标注提交者）、`profile_pool`（公开画像）。
+- **保留但暂不使用 15 张**：user_records / experience_items / delivery_tasks / task_indicators /
+  job_field_map / target_jobs / user_jobs / user_job_scopes / profile_weights / history_samples /
+  job_centers / delivery_attempts / hr_inbox / hr_responses / app_state。
+  它们是云端化预留，结构保留、零数据、代码不访问；**不要删表**（mydata 的部分函数仍按全表结构初始化）。
+
+### 3. 桌面端（tkinter，四页签，替代 Streamlit 的主力入口）
+
+- **我的简历**：PDF 导入（规则 + DeepSeek 双引擎解析）→ 本地库存取（`pipeline.store_user` / `latest_user_data`）
+- **投递工作台**（新，核心）：`flow.py` 无头内核驱动——平台登录态列表（登录/完成登录）→ 关键词检索 →
+  匹配建任务生成材料 → 任务表（预览材料/单条投递/确认手动/批量投递）→ 反馈标注（式五回写）。
+  安全模式开关默认开启。**启动时自动 `db.init_db()` 建本地表（便携版无 app.py 兜底，必做）**。
+- **画像对比**：云端公开画像超几何空间图（他人=对比）
+- **共享岗位池**：云端池浏览 + 「推送本地岗位到云端 / 从云端拉取新岗位」按钮
+
+登录窗口生命周期：`session.open_login()` 把 driver 存入 `ACTIVE_DRIVERS` 持有到「完成登录」/
+「取消」，**绝不能用 `launch_login()`**（返回即被 GC，浏览器窗口直接关闭，二维码扫不了）。
+
+### 4. 新增/变更文件
+
+| 文件 | 说明 |
+|---|---|
+| `flow.py` | 投递工作台无头流程控制器（可独立测试） |
+| `cloud_sync.py` | 岗位池双向同步，去重键=岗位链接，缺链接用 sha1(名称\|单位\|城市) 前 24 位 |
+| `desktop.py` | 桌面端（+投递工作台页签；简历改本地；启动 init_db） |
+| `auth.py` / `mydata.py` | 全部公开函数显式 `use_cloud()` |
+| `db.py` | 默认本地解析；`use_cloud()` 上下文管理器 |
+| `_test_flow.py` | flow + cloud_sync 联调（含云端 selftest 自清） |
+| `_gui_smoke.py` | 桌面端全新环境建表 + 四页签构建冒烟 |
+
+### 5. 运行与测试（本轮全部实测通过）
+
+```powershell
+python desktop.py                    # 桌面端（等价于 exe）
+python _gui_smoke.py                 # 桌面端建表+四页签冒烟（隔离环境）
+python _test_flow.py                 # flow + 云同步联调（隔离环境，自动清云测试数据）
+python verify_health.py              # 代码健康度（8 组断言）
+python mock_e2e.py                   # Mock 全量端到端
+python mock_replies_e2e.py / mock_restore_e2e.py
+python verify_formulas.py / verify_viz.py / verify_db_strict.py / verify_ui_compat.py
+```
+
+### 6. 云端现状与队友须知
+
+- 云库 **2026-11-24 已整库清空**（表结构保留），所有人需**重新注册账号**。
+- 队友 exe 下载：https://github.com/HnoNoe/job-delivery-system/releases/download/v0.2.0/JobDeliverySystem-v0.2.0.exe
+- 各自机器的投递数据（任务/反馈/画像演进）只存在本机，互不可见——这是设计意图；
+  全队共享的只有账号、岗位池、公开画像。

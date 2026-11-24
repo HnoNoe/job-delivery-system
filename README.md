@@ -86,9 +86,20 @@
 | `verification.py` / `user_profile.py` / `matching.py` / `tasks.py` | 步骤一~四 |
 | `generation.py` / `delivery.py` / `feedback.py` | 步骤五~七 |
 | `pipeline.py` / `loop.py` | 流程编排 |
-| `app.py` | Web Dashboard（6 步向导） |
+| `flow.py` | 投递工作台无头内核（桌面端调用，可独立测试） |
+| `cloud_sync.py` | 云端共享岗位池双向同步（链接/指纹去重） |
+| `auth.py` / `mydata.py` | 云端账号与画像数据接口（显式 `use_cloud()`） |
+| `desktop.py` | 桌面端（tkinter 四页签：简历/投递工作台/画像对比/共享岗位池） |
+| `app.py` | Web Dashboard（6 步向导，历史入口） |
 | `main.py` | CLI 入口 |
 | `start.py` / `start.bat` | 一键启动 |
+
+## 本地与云端分工（2026-11-24 起）
+
+- **默认工作库 = 本机 SQLite**：简历、检索、匹配、建任务、投递、反馈闭环全部本地完成，零网络依赖。
+- **云端 MySQL 只存三类共享数据**：账号（`accounts`）、共享岗位池（`jobs`，标注提交者）、公开画像（`profile_pool`）。
+- 连云是**显式 opt-in**：只有设置 `JOBDELIVERY_DB_URL=mysql://...` 才走云端库；`sqlite`/`local`/未设置一律本地。
+- 桌面端「投递工作台」页签 = 完整投递流程；「共享岗位池」页签 = 一键推送/拉取岗位池。
 
 ## 快速运行
 
@@ -97,7 +108,8 @@
 ```powershell
 cd "E:\work\deepseek_workspace\项目相关\job-delivery-system"
 python setup_env.py --browser
-python start.py
+python desktop.py        # 桌面端（推荐主力入口）
+python start.py          # Web 面板（历史入口，6 步向导）
 ```
 
 macOS/Linux 使用 `python3 setup_env.py --browser`，然后 `python3 start.py` 或 `sh start.sh`。Windows 也可双击 `start.bat`。`--browser` 安装登录/采集/表单依赖；仍需本机安装 Chrome、Edge 或 Chromium。仅使用本地匹配和材料生成时可省略 `--browser`。
@@ -122,6 +134,7 @@ python start.py --foreground            # 前台运行，Ctrl+C 停止
 |---|---|
 | `JOBDELIVERY_HOME` | 可写的运行目录，存数据库、日志、简历、材料包、会话；默认项目目录 |
 | `JOBDELIVERY_DB` | 可选的数据库文件完整路径 |
+| `JOBDELIVERY_DB_URL` | `mysql://用户:密码@主机/库名` 显式连云（默认本地 SQLite，不设即本地） |
 | `JOBDELIVERY_BROWSER` | 可选的 Chrome/Edge/Chromium 可执行文件完整路径 |
 | `JOBDELIVERY_HEADLESS` | `1` 启用无界面浏览器，仅适合不需人工扫码的场景 |
 | `JOBDELIVERY_SEARCH_HIDDEN` | `0` 关闭“检索静默”：默认检索不弹窗（复用登录浏览器；需新开时把窗口移到屏幕外并隐藏） |
@@ -135,17 +148,20 @@ python start.py --foreground            # 前台运行，Ctrl+C 停止
 
 ## 便携版（单文件 exe）
 
-双击 `JobDeliverySystem.exe` 即用，**目标机器不需要安装 Python**：
+双击 `JobDeliverySystem.exe` 即用，**目标机器不需要安装 Python**（v0.2.0 起同时启动桌面窗口与内嵌 Web 面板）：
 
 ```powershell
 # 构建（需要 .NET 无要求；PyInstaller 会用到 pip）
 pip install -r requirements-build.txt
 build_portable.bat                  # 等价于：set PORTABLE_ONEFILE=1 && pyinstaller portable.spec
 # 产物
-dist\JobDeliverySystem.exe          # 单文件，约 139 MB
+dist\JobDeliverySystem.exe          # 单文件，约 169 MB
 ```
 
-- 首次启动会把依赖解压到临时目录（约 10–15 秒），之后打开 <http://127.0.0.1:8501>；
+- 首次启动会把依赖解压到临时目录（约 10–15 秒），随后弹出桌面端窗口，Web 面板在 <http://127.0.0.1:8501>；
+- 桌面端四个页签：我的简历（本地库）｜投递工作台（登录→检索→匹配→投递→反馈全流程）｜画像对比｜共享岗位池（云端推送/拉取）；
+- 首次运行自动建本地 SQLite 表；运行数据（`data/`、`resumes/`、`packages/`、`sessions/`、`logs/`）默认写在 **exe 同目录**；
+- 云库已清空（2026-11-24），全队需重新注册账号；账号/岗位池/公开画像走云端，其余全在本机；
 - 打包内容包含 `app.py`、依赖、自定义组件 `components/match_space/`，并显式传入亮色主题基线与品牌主色；
 - 运行数据（`data/`、`resumes/`、`packages/`、`sessions/`、`logs/`）默认写在 **exe 同目录**，整个文件夹可直接拷到 U 盘；目录不可写时回退 `%LOCALAPPDATA%\JobDeliverySystem`；
 - 环境自检：`JobDeliverySystem.exe --check`（打印依赖版本与浏览器路径）；
