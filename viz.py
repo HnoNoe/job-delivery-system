@@ -481,3 +481,93 @@ def user_semantic_space(highlight_id=None, three_d=False):
         return user_space_chart(df, "PC1", "PC2", "PC3" if three_d else None, highlight_id)
     except Exception:
         return None  # 降维失败不阻断页面
+
+
+# ---------------- 用户池 × 岗位池统一空间 ----------------
+
+CLUSTER_PALETTE = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444",
+                   "#8B5CF6", "#EC4899", "#14B8A6", "#F97316"]
+
+
+def unified_space_chart(space, three_d=True, width=None, height=None):
+    """统一匹配空间图：岗位按簇着色，用户金色星形，当前用户光环高亮。
+
+    space 为 unispace.build_space() 的输出；岗位为空返回 None。
+    """
+    if not space or not space.get("jobs"):
+        return None
+    import collections
+
+    users, jobs = space["users"], space["jobs"]
+    dims = len(jobs[0]["coord"])
+    if dims < 3:
+        three_d = False
+    fig = go.Figure()
+
+    # —— 岗位点：一簇一色，簇名来自 unispace 词频命名 ——
+    by_cluster = collections.defaultdict(list)
+    for j in jobs:
+        by_cluster[j["cluster"]].append(j)
+    for k in sorted(by_cluster):
+        grp = by_cluster[k]
+        color = CLUSTER_PALETTE[k % len(CLUSTER_PALETTE)]
+        hover = ["%s @ %s｜%s｜%s" % (
+            j["fields"].get("岗位名称", ""), j["fields"].get("单位名称", ""),
+            j["fields"].get("城市", ""), j["fields"].get("薪资", "")) for j in grp]
+        xs = [j["coord"][0] for j in grp]
+        ys = [j["coord"][1] for j in grp]
+        if three_d:
+            fig.add_trace(go.Scatter3d(
+                x=xs, y=ys, z=[j["coord"][2] for j in grp], mode="markers",
+                name="岗位簇 · " + grp[0]["cluster_name"], hovertext=hover, hoverinfo="text",
+                marker=dict(size=5, color=color, opacity=0.65)))
+        else:
+            fig.add_trace(go.Scatter(
+                x=xs, y=ys, mode="markers", name="岗位簇 · " + grp[0]["cluster_name"],
+                hovertext=hover, hoverinfo="text",
+                marker=dict(size=8, color=color, opacity=0.7,
+                            line=dict(color="#FFFFFF", width=1))))
+
+    # —— 用户点：金色星形，当前用户放大加白环 ——
+    if users:
+        others = [u for u in users if not u.get("is_me")]
+        me = [u for u in users if u.get("is_me")]
+        for grp, size, name in ((others, 11, "用户池"), (me, 17, "我（当前用户）")):
+            if not grp:
+                continue
+            hover = ["%s｜累计投递 %d · 进面试 %d｜最契合簇匹配度 %.2f" % (
+                u.get("label") or u["owner"], u.get("delivered", 0),
+                u.get("interview", 0), u.get("fit", 0.0)) for u in grp]
+            marker = dict(size=size, color="#F59E0B", symbol="star",
+                          line=dict(color="#FFFFFF", width=1.5 if grp is me else 1))
+            xs, ys = [u["coord"][0] for u in grp], [u["coord"][1] for u in grp]
+            if three_d:
+                fig.add_trace(go.Scatter3d(
+                    x=xs, y=ys, z=[u["coord"][2] for u in grp],
+                    mode="markers+text", text=[u.get("label") or u["owner"] for u in grp],
+                    textposition="top center", textfont=dict(size=10),
+                    name=name, hovertext=hover, hoverinfo="text", marker=marker))
+            else:
+                fig.add_trace(go.Scatter(
+                    x=xs, y=ys, mode="markers+text",
+                    text=[u.get("label") or u["owner"] for u in grp],
+                    textposition="top center", textfont=dict(size=11),
+                    name=name, hovertext=hover, hoverinfo="text", marker=marker))
+
+    k = space.get("k", 0)
+    title = "用户池 × 岗位池 · 统一匹配空间（联合 PCA 对齐，岗位自动聚为 %d 簇）" % k
+    if three_d:
+        fig.update_layout(
+            title=dict(text=title, x=0.5), height=height or 620,
+            width=width,
+            scene=dict(xaxis_title="主成分 1", yaxis_title="主成分 2",
+                       zaxis_title="主成分 3", bgcolor="#F8FAFC"),
+            margin=dict(l=0, r=0, t=50, b=0),
+            legend=dict(x=0.01, y=0.99))
+    else:
+        fig.update_layout(
+            title=dict(text=title, x=0.5), height=height or 520, width=width,
+            xaxis_title="主成分 1", yaxis_title="主成分 2",
+            margin=dict(l=0, r=0, t=50, b=0),
+            legend=dict(x=0.01, y=0.99))
+    return fig

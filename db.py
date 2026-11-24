@@ -455,6 +455,7 @@ def _migrate(conn, sqlite):
             ("delivery_tasks", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
             ("profile_pool", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
             ("profile_pool", "visibility", "VARCHAR(16) NOT NULL DEFAULT 'public'"),
+            ("profile_pool", "label", "VARCHAR(128) NOT NULL DEFAULT ''"),
             ("jobs", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
         ):
             columns = {r[1] for r in conn.execute("PRAGMA table_info(%s)" % table)}
@@ -474,6 +475,7 @@ def _migrate(conn, sqlite):
             ("delivery_tasks", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
             ("profile_pool", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
             ("profile_pool", "visibility", "VARCHAR(16) NOT NULL DEFAULT 'public'"),
+            ("profile_pool", "label", "VARCHAR(128) NOT NULL DEFAULT ''"),
             ("jobs", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
         ):
             if column not in _cols(table):

@@ -20,6 +20,45 @@ st.markdown("## 🧭 用户画像广场")
 st.caption("群体分布与个体定位：左侧三维总览 + 右侧 XY / XZ 投影；"
            "三图共享同一批用户与同一个选中人物，点任意视图即可联动。")
 
+# ---------------- 统一空间（云端：用户池 × 共享岗位池，联合 PCA 对齐） ----------------
+_unify = st.toggle("🌐 统一空间模式（云端用户池 × 共享岗位池 · 岗位自动聚类）", value=False)
+if _unify:
+    import mydata
+    import unispace
+    with st.spinner("读取云端用户池与岗位池…"):
+        try:
+            _cloud_users = mydata.list_space_users()
+            _cloud_jobs = mydata.list_space_jobs()
+        except Exception as e:
+            st.error("云端数据读取失败：%s" % e)
+            st.stop()
+    if not _cloud_jobs:
+        theme.empty_state("🌐", "云端岗位池还是空的",
+                          "先抓取岗位并在「共享岗位池」推送到云端，再回来看统一空间。")
+        st.stop()
+    if not _cloud_users:
+        st.info("云端用户池暂无公开画像：在桌面端「画像对比」页点「发布我的画像到云端」，"
+                "队友发布后即可看到人与岗位的空间关系。")
+    _u3d = st.toggle("三维视图", value=True)
+    _space = unispace.build_space(_cloud_users, _cloud_jobs, dims=3)
+    _fig = viz.unified_space_chart(_space, three_d=_u3d)
+    if _fig is not None:
+        st.plotly_chart(_fig)
+    if _space["users"]:
+        _rows = [{"用户": u.get("label") or u["owner"],
+                  "最契合岗位簇": (_space["clusters"].get(u["cluster"], "—")
+                               if u["cluster"] >= 0 else "—"),
+                  "簇匹配度": "%.2f" % u.get("fit", 0.0),
+                  "累计投递": u.get("delivered", 0),
+                  "进面试": u.get("interview", 0)} for u in _space["users"]]
+        with st.expander("👤 用户归属总表（%d）" % len(_rows), expanded=True):
+            theme.dataframe(pd.DataFrame(_rows), hide_index=True)
+        st.caption("簇匹配度 = 用户向量与最近岗位簇心的余弦（同一 PCA 基下计算）；"
+                   "越远表示画像与该岗位方向差异越大。")
+    st.caption("数据来源：云端公开画像（向量+计数，不含简历原文）与云端共享岗位池；"
+               "联合 PCA 对用户矩阵与岗位矩阵一次性拟合，两端坐标可比。")
+    st.stop()
+
 df = viz.user_feature_table()
 if df.empty:
     theme.empty_state("🧭", "还没有用户数据",

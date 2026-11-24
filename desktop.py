@@ -737,6 +737,72 @@ def main():
             _bg(work, done)
         ttk.Button(tab, text="刷新统计", command=refresh_info).pack(anchor="w", pady=4)
 
+        # —— 我的画像上云（统一空间数据源） ——
+        pub_frame = ttk.LabelFrame(tab, text="我的画像上云（只发布向量/计数/姓名·学校·专业，不含简历原文）")
+        pub_var = tk.StringVar(value="未发布")
+
+        def do_publish():
+            def work():
+                return mydata.push_profile(user_var.get())
+            def done(ok, res):
+                if not ok:
+                    pub_var.set("发布失败：%s" % res)
+                    return
+                ok2, msg = res
+                pub_var.set(msg if ok2 else "未发布：%s" % msg)
+                refresh_info()
+            _bg(work, done)
+
+        def do_retract():
+            if not messagebox.askyesno("撤回画像", "从云端用户池撤回你的公开画像？"):
+                return
+            def work():
+                return mydata.retract_profile(user_var.get())
+            def done(ok, res):
+                if not ok:
+                    pub_var.set("撤回失败：%s" % res)
+                    return
+                _ok, msg = res
+                pub_var.set(msg)
+                refresh_info()
+            _bg(work, done)
+        ttk.Button(pub_frame, text="⬆ 发布我的画像到云端", command=do_publish).pack(side="left", padx=4, pady=4)
+        ttk.Button(pub_frame, text="撤回公开画像", command=do_retract).pack(side="left", padx=4)
+        ttk.Label(pub_frame, textvariable=pub_var, foreground="#059669").pack(side="left", padx=8)
+        pub_frame.pack(fill="x", pady=4)
+
+        # —— 统一空间图（用户池 × 岗位池） ——
+        def gen_unified():
+            status_var.set("生成统一空间图（云端用户池 × 岗位池）…")
+
+            def work():
+                import unispace
+                users = mydata.list_space_users()
+                jobs = mydata.list_space_jobs()
+                if not jobs:
+                    raise RuntimeError("云端岗位池为空：先在「共享岗位池」推送岗位")
+                space = unispace.build_space(users, jobs, dims=3,
+                                             highlight_owner=user_var.get())
+                import viz
+                fig = viz.unified_space_chart(space, three_d=True)
+                if fig is None:
+                    raise RuntimeError("作图失败：空间数据为空")
+                out = os.path.join(config.DATA_DIR, "unified_space.html")
+                fig.write_html(out, include_plotlyjs="cdn")
+                return out, len(users), len(jobs), space["k"]
+
+            def done(ok, res):
+                if not ok:
+                    messagebox.showerror("生成失败", str(res))
+                    status_var.set("统一空间图生成失败")
+                    return
+                out, nu, nj, k = res
+                webbrowser.open("file://" + out)
+                status_var.set("统一空间图已生成：%d 用户 × %d 岗位，聚为 %d 簇 → %s" % (nu, nj, k, out))
+            _bg(work, done)
+        ttk.Button(tab, text="🌐 生成统一空间图（用户池 × 岗位池，浏览器打开）",
+                   command=gen_unified).pack(anchor="w", pady=6)
+
         def gen_chart():
             status_var.set("生成对比图…")
 

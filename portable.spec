@@ -43,7 +43,7 @@ LOCAL_MODULES = [
     "pipeline", "loop", "platforms", "session", "crawler", "form_filler", "llm",
     "logging_setup", "theme", "viz", "login_status", "runtime_paths", "browser_runtime",
     "persona", "workbench", "profile_plaza", "resume_ai", "secrets_local",
-    "auth", "mydata", "flow", "cloud_sync", "desktop",
+    "auth", "mydata", "flow", "cloud_sync", "unispace", "desktop",
 ]
 hiddenimports += LOCAL_MODULES
 # Streamlit 1.66 起用 uvicorn/starlette 提供服务，这些是动态导入，显式声明

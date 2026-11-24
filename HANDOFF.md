@@ -260,3 +260,21 @@ python verify_formulas.py / verify_viz.py / verify_db_strict.py / verify_ui_comp
 - 队友 exe 下载：https://github.com/HnoNoe/job-delivery-system/releases/download/v0.2.0/JobDeliverySystem-v0.2.0.exe
 - 各自机器的投递数据（任务/反馈/画像演进）只存在本机，互不可见——这是设计意图；
   全队共享的只有账号、岗位池、公开画像。
+
+## 十四、2026-11-24 统一匹配空间落地（用户池 × 岗位池同图）
+
+设计文档：`docs/设计-用户岗位统一匹配空间.md`（含原理与差距表）。要点：
+
+- **对齐**：用户向量（式一）与岗位 embedding 同词表同空间；`unispace.fit_space` 对
+  [用户;岗位] 联合矩阵做一次 PCA，簇心等第三者用同一 fit 投影，坐标全局可比。
+- **聚类**：`unispace.cluster_jobs` KMeans + 轮廓系数自动选 K；`cluster_keywords` 用词频 Top3 命名
+  （如"后端开发、Java、Spring"）。
+- **上云通道**：`mydata.push_profile(owner)`（本地最新快照→云端 public，一人一点先删后插，
+  只传向量/计数/姓名·学校·专业标签，可 `retract_profile` 撤回）。旧 `publish_snapshot` 已断链废弃。
+  `profile_pool` 新增 `label` 列（db.py 两端迁移清单已补；mydata 每次云调用前 init_db 自动迁移）。
+- **作图**：`viz.unified_space_chart`（岗位按簇着色、用户金色星形、当前用户光环、
+  轴=主成分，hover 含簇匹配度）。
+- **入口**：桌面端「画像对比」页（发布/撤回/统一空间图按钮）；网页画像广场顶部
+  「🌐 统一空间模式」开关（云端数据，任何端看到同一幅图）。
+- 回归：`verify_unispace.py`（合成 6 用户 24 岗位：对齐/聚类 K=2/归属 6/6/发布往返/幂等/撤回）。
+- 技术栈收束：numpy + scikit-learn（KMeans/轮廓系数）+ plotly，全部本地计算、云端只存取数据。

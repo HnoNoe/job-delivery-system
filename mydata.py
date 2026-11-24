@@ -13,10 +13,12 @@ import db
 
 
 def _cloud(fn):
-    """mydata 全部走云端共享库；本地库不在此层访问。"""
+    """mydata 全部走云端共享库；本地库不在此层访问。
+    每次调用前 init_db()：迁移（如 profile_pool.label）在云端即时生效。"""
     @functools.wraps(fn)
     def wrapper(*a, **kw):
         with db.use_cloud():
+            db.init_db()
             return fn(*a, **kw)
     return wrapper
 
@@ -129,6 +131,94 @@ def set_profile_visibility(snap_id, owner, visibility):
         "UPDATE profile_pool SET visibility = ? WHERE snap_id = ? AND owner = ?",
         (visibility, snap_id, owner))
     db.get_conn().commit()
+
+
+# ---------- 用户池上云（统一空间数据源，见 docs/设计-用户岗位统一匹配空间.md） ----------
+
+def push_profile(owner):
+    """本地最新画像快照 → 云端公开用户池（一人一点：先删后插）。返回 (ok, msg)。
+
+    只上传向量/权重/计数/标签（姓名·学校·专业），不含简历原文与联系方式。
+    """
+    conn = db.get_conn()
+    try:
+        row = conn.execute(
+            "SELECT user_id, weights, user_vec, pos_center, neg_center, "
+            "delivered_count, interview_count FROM profile_pool ORDER BY snap_id DESC LIMIT 1"
+        ).fetchone()
+        l0 = {}
+        if row is not None:
+            r2 = conn.execute("SELECT l0 FROM user_records WHERE user_id=?",
+                              (row["user_id"],)).fetchone()
+            if r2 and r2["l0"]:
+                l0 = json.loads(r2["l0"])
+    finally:
+        conn.close()
+    if row is None or not row["user_vec"]:
+        return False, "本地还没有画像快照，先跑一次投递闭环（或标注一条反馈）"
+    name = l0.get("姓名") or owner
+    tag = "·".join(x for x in (l0.get("学校", ""), l0.get("专业", "")) if x)
+    label = (name + ("｜" + tag if tag else ""))[:128]
+    with db.use_cloud():
+        db.init_db()
+        conn = db.get_conn()
+        try:
+            conn.execute("DELETE FROM profile_pool WHERE owner=? AND visibility='public'", (owner,))
+            conn.execute(
+                "INSERT INTO profile_pool (user_id, weights, user_vec, pos_center, neg_center, "
+                "delivered_count, interview_count, owner, visibility, label) "
+                "VALUES (?,?,?,?,?,?,?,?, 'public', ?)",
+                (row["user_id"], row["weights"], row["user_vec"], row["pos_center"],
+                 row["neg_center"], row["delivered_count"] or 0,
+                 row["interview_count"] or 0, owner, label))
+            conn.commit()
+        finally:
+            conn.close()
+    return True, "已发布到云端用户池：%s" % label
+
+
+def retract_profile(owner):
+    """撤回公开画像（删除云端自己 owner 的 public 行）。"""
+    with db.use_cloud():
+        db.init_db()
+        conn = db.get_conn()
+        try:
+            conn.execute("DELETE FROM profile_pool WHERE owner=? AND visibility='public'", (owner,))
+            conn.commit()
+        finally:
+            conn.close()
+    return True, "已撤回公开画像"
+
+
+@_cloud
+def list_space_users():
+    """统一空间数据：云端公开用户池（每人最新一条，含标签）。返回 [{owner,label,user_vec,weights,统计}]。"""
+    out = []
+    for r in db.get_conn().execute(
+            "SELECT owner, label, user_vec, delivered_count, interview_count FROM profile_pool p "
+            "WHERE visibility='public' AND user_vec IS NOT NULL AND user_vec != '' "
+            "AND snap_id = (SELECT MAX(snap_id) FROM profile_pool WHERE owner = p.owner)"):
+        g = lambda k, i: (r[k] if isinstance(r, dict) else r[i])
+        out.append({"owner": g("owner", 0), "label": g("label", 1),
+                    "user_vec": json.loads(g("user_vec", 2) or "null"),
+                    "delivered": g("delivered_count", 3) or 0,
+                    "interview": g("interview_count", 4) or 0})
+    return out
+
+
+@_cloud
+def list_space_jobs(limit=2000):
+    """统一空间数据：云端岗位池（含向量）。返回 [{job_id, fields, embedding}]。"""
+    out = []
+    for r in db.get_conn().execute(
+            "SELECT job_id, fields, embedding FROM jobs "
+            "WHERE active = 1 AND embedding IS NOT NULL AND embedding != '' LIMIT ?",
+            (int(limit),)):
+        g = lambda k, i: (r[k] if isinstance(r, dict) else r[i])
+        out.append({"job_id": g("job_id", 0),
+                    "fields": json.loads(g("fields", 1) or "{}"),
+                    "embedding": json.loads(g("embedding", 2) or "null")})
+    return out
 
 
 @_cloud
