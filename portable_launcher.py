@@ -114,7 +114,7 @@ def main(argv=None) -> int:
     if "--check" in argv:
         import importlib
         for name in ("streamlit", "plotly", "pandas", "numpy", "reportlab", "pdfplumber",
-                     "DrissionPage", "selenium"):
+                     "DrissionPage", "selenium", "tkinter"):
             try:
                 mod = importlib.import_module(name)
                 print("  %-14s %s" % (name, getattr(mod, "__version__", "ok")))
@@ -126,6 +126,16 @@ def main(argv=None) -> int:
         except Exception as exc:
             print("  %-14s 未找到：%s" % ("浏览器", exc))
         return 0
+
+    # 默认启动桌面端（tkinter 原生窗口）；--web 走旧版 Streamlit 面板
+    if "--web" not in argv:
+        try:
+            import desktop
+            print("正在启动桌面端…")
+            desktop.main()
+            return 0
+        except Exception as exc:  # tkinter 缺失等极端情况回退网页版
+            print("桌面端不可用（%s），回退网页版。" % exc)
 
     if "--no-browser" not in argv:
         threading.Thread(target=wait_and_open, args=(port,), daemon=True).start()

@@ -43,6 +43,7 @@ LOCAL_MODULES = [
     "pipeline", "loop", "platforms", "session", "crawler", "form_filler", "llm",
     "logging_setup", "theme", "viz", "login_status", "runtime_paths", "browser_runtime",
     "persona", "workbench", "profile_plaza", "resume_ai", "secrets_local",
+    "auth", "mydata", "desktop",
 ]
 hiddenimports += LOCAL_MODULES
 # Streamlit 1.66 起用 uvicorn/starlette 提供服务，这些是动态导入，显式声明
@@ -58,7 +59,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["tests", "pytest", "matplotlib", "tkinter",
+    excludes=["tests", "pytest", "matplotlib",
               # PIL.ImageQt 等会把 Qt 绑定误拖进依赖图，分析 Qt DLL 极慢且可能卡死；本应用不用 Qt
               "PyQt5", "PyQt6", "PySide2", "PySide6",
               # 便携版不内置深度学习栈（未装 sentence-transformers 时应用自动回退哈希嵌入），

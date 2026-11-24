@@ -183,10 +183,13 @@ class MySQLShim:
             self._dirty = False
 
     def close(self):
-        # 连接归还给线程池而非真正断开：先回滚未提交事务，
-        # 与「每次新建连接」语义一致（旧连接丢弃未提交改动），但免去公网重连开销。
+        # 连接归还给线程池而非真正断开：服务端仍挂着事务则回滚
+        # （与「每次新建连接」语义一致，旧连接丢弃未提交改动），
+        # 否则空闲事务长期占用元数据锁，会阻塞其他端的表结构变更。
         try:
-            self.rollback()
+            if self._conn.server_status & 0x0001:  # SERVER_STATUS_IN_TRANS
+                self._conn.rollback()
+                self._dirty = False
         except Exception:
             pass
 
@@ -212,16 +215,20 @@ def get_conn():
     if url:
         # 线程级连接复用：Streamlit 每次交互重跑整页、查询数十次，
         # 若每次新建公网 TCP+鉴权（几十~几百毫秒）会明显卡顿。
-        # 同一连接同时只归一个线程使用；断线自动重连；
-        # 回滚上次中断遗留的未提交事务，保持「只读已提交数据」的语义。
+        # 同一连接同时只归一个线程使用；断线自动重连。
+        # 检出时若服务端仍挂着未提交事务（SELECT 在 autocommit=0 下也会开事务），
+        # 必须回滚——否则空闲连接长期占用元数据锁，会阻塞其他端的表结构变更，
+        # 并在多机共用时有锁堆积风险。server_status 是本地状态位，零网络开销。
         shim = getattr(_tls, "_shim", None)
         if shim is not None and not shim._conn.open:
-            shim = None  # 本地套接字检查（零网络开销）；断线由 execute 内重连兜底
+            shim = None  # 本地套接字检查；断线由 execute 内重连兜底
         if shim is None:
             shim = MySQLShim()
             _tls._shim = shim
         try:
-            shim.rollback()  # 仅有未提交事务时才发 ROLLBACK 包
+            if shim._conn.server_status & 0x0001:  # SERVER_STATUS_IN_TRANS
+                shim._conn.rollback()
+                shim._dirty = False
         except Exception:
             pass
         return shim
@@ -350,6 +357,14 @@ _TABLES_SQLITE = """
         value TEXT,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+    -- 账号体系：桌面端注册/登录。库中只存加盐 PBKDF2 哈希，不存明文密码。
+    CREATE TABLE IF NOT EXISTS accounts (
+        account_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username VARCHAR(64) UNIQUE NOT NULL,
+        pw_hash TEXT NOT NULL,
+        salt TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
     """
 
 _TABLES_MYSQL = _TABLES_SQLITE
@@ -391,6 +406,8 @@ def _init_sqlite(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS responses_task ON hr_responses(task_id)")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS responses_dedup "
                  "ON hr_responses(task_id, kind, content_hash) WHERE content_hash IS NOT NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS records_owner ON user_records(owner)")
+    conn.execute("CREATE INDEX IF NOT EXISTS pool_owner ON profile_pool(owner)")
     conn.commit()
 
 
@@ -403,6 +420,8 @@ def _init_mysql(conn):
     _safe_index(conn, "CREATE INDEX tasks_user ON delivery_tasks(user_id)")
     _safe_index(conn, "CREATE INDEX responses_task ON hr_responses(task_id)")
     _safe_index(conn, "CREATE UNIQUE INDEX responses_dedup ON hr_responses(task_id, kind, content_hash)")
+    _safe_index(conn, "CREATE INDEX records_owner ON user_records(owner)")
+    _safe_index(conn, "CREATE INDEX pool_owner ON profile_pool(owner)")
     conn.commit()
 
 
@@ -413,6 +432,10 @@ def _migrate(conn, sqlite):
             ("jobs", "active", "INTEGER NOT NULL DEFAULT 1"),
             ("delivery_tasks", "match_score", "REAL"),
             ("history_samples", "task_id", "INTEGER"),
+            ("user_records", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
+            ("delivery_tasks", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
+            ("profile_pool", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
+            ("profile_pool", "visibility", "VARCHAR(16) NOT NULL DEFAULT 'public'"),
         ):
             columns = {r[1] for r in conn.execute("PRAGMA table_info(%s)" % table)}
             if column not in columns:
@@ -427,6 +450,10 @@ def _migrate(conn, sqlite):
             ("jobs", "active", "INT NOT NULL DEFAULT 1"),
             ("delivery_tasks", "match_score", "DOUBLE"),
             ("history_samples", "task_id", "INT"),
+            ("user_records", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
+            ("delivery_tasks", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
+            ("profile_pool", "owner", "VARCHAR(64) NOT NULL DEFAULT ''"),
+            ("profile_pool", "visibility", "VARCHAR(16) NOT NULL DEFAULT 'public'"),
         ):
             if column not in _cols(table):
                 conn.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, definition))
