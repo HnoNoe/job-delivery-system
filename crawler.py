@@ -344,6 +344,8 @@ def search_via_requests(platform_key, keyword, city="", pages=1):
     import requests
     import platforms as plat
     import session
+    import time
+    import config
 
     p = plat.get(platform_key)
     if not p:
@@ -357,6 +359,8 @@ def search_via_requests(platform_key, keyword, city="", pages=1):
     api_url = p.get("api_url")
     if api_url:
         for pg in range(1, pages + 1):
+            if pg > 1:
+                time.sleep(config.SEARCH_PAGE_INTERVAL)  # 翻页限速，模拟人工
             url = plat.search_url(platform_key, keyword, city, pg, api=True)
             r = requests.get(url, cookies=cookie_dict, headers=DEFAULT_HEADERS, timeout=15)
             r.raise_for_status()
@@ -373,6 +377,8 @@ def search_via_requests(platform_key, keyword, city="", pages=1):
                 jobs.append(normalize_fields(raw))
     else:
         for pg in range(1, pages + 1):
+            if pg > 1:
+                time.sleep(config.SEARCH_PAGE_INTERVAL)  # 翻页限速，模拟人工
             url = plat.search_url(platform_key, keyword, city, pg)
             r = requests.get(url, cookies=cookie_dict, headers=DEFAULT_HEADERS, timeout=15)
             r.raise_for_status()

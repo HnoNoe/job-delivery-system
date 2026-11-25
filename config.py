@@ -96,6 +96,8 @@ SAFE_MODE = True
 DELIVER_INTERVAL = 8
 # 「全部投递」模式的间隔（更长，降低连续投递风控概率）
 DELIVER_INTERVAL_ALL = int(os.environ.get("JOBDELIVERY_DELIVER_INTERVAL_ALL", "20"))
+# 检索翻页间隔（秒）：每采一页停这么久，模拟人工翻页，防止触发平台风控
+SEARCH_PAGE_INTERVAL = float(os.environ.get("JOBDELIVERY_SEARCH_INTERVAL", "2.5"))
 
 # ---------- 投递地址校验（防 SSRF / 个人信息外发到内网）----------
 # 采集来的「投递入口地址」属于不可信数据：默认只允许 http/https 的公网地址。

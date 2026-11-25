@@ -28,9 +28,18 @@ c = subprocess.run(["git", "show", "-s", "--format=%s%n%b", commit_sha],
 subject, _, body = c.partition("\n")
 message = subject + ("\n\n" + body.rstrip("\n") if body.strip() else "")
 
-r = requests.get(f"{BASE}/repos/{REPO}/git/ref/heads/main", headers=H, timeout=30)
-r.raise_for_status()
-parent = r.json()["object"]["sha"]
+import os
+BRANCH = os.environ.get("JOBDELIVERY_PUSH_BRANCH", "main")
+r = requests.get(f"{BASE}/repos/{REPO}/git/ref/heads/{BRANCH}", headers=H, timeout=30)
+if r.status_code == 404:
+    # 新分支：以该提交的父提交为基点，最后创建引用
+    parent = subprocess.run(["git", "rev-parse", commit_sha + "^"],
+                            capture_output=True, text=True).stdout.strip()
+    CREATE_REF = True
+else:
+    r.raise_for_status()
+    parent = r.json()["object"]["sha"]
+    CREATE_REF = False
 r = requests.get(f"{BASE}/repos/{REPO}/git/commits/{parent}", headers=H, timeout=30)
 r.raise_for_status()
 base_tree = r.json()["tree"]["sha"]
@@ -58,10 +67,14 @@ r.raise_for_status()
 new_commit = r.json()["sha"]
 print("new commit:", new_commit[:8])
 
-r = requests.patch(f"{BASE}/repos/{REPO}/git/refs/heads/main", headers=H, timeout=30,
-                   json={"sha": new_commit})
+if CREATE_REF:
+    r = requests.post(f"{BASE}/repos/{REPO}/git/refs", headers=H, timeout=30,
+                      json={"ref": f"refs/heads/{BRANCH}", "sha": new_commit})
+else:
+    r = requests.patch(f"{BASE}/repos/{REPO}/git/refs/heads/{BRANCH}", headers=H, timeout=30,
+                       json={"sha": new_commit})
 r.raise_for_status()
-print("=== main 已更新到", new_commit[:8], "===")
+print("===", BRANCH, "已更新到", new_commit[:8], "===")
 
 # 同步本地 remote 跟踪
 subprocess.run(["git", "update-ref", "refs/remotes/origin/main", new_commit])
